@@ -22,94 +22,90 @@ st.set_page_config(page_title="PDF Studio", page_icon="📄", layout="wide")
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Jost:wght@300;400;500;600&display=swap');
 
-html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
-.stApp { background-color: #fdf5f0; color: #3a2e2e; }
-h1,h2,h3 { font-family: 'DM Serif Display', serif !important; color: #3a2e2e; }
+html, body, [class*="css"] { font-family: 'Jost', sans-serif; letter-spacing: 0.01em; }
 
-/* Top header */
-.hero { text-align: center; padding: 2rem 1rem 1rem; }
-.hero h1 { font-size: 2.6rem; font-weight: 400; color: #3a2e2e; letter-spacing: -1px; margin-bottom: 0.2rem; }
-.hero p { color: #9a7e7e; font-size: 0.95rem; }
-.accent { color: #b5736a; }
+.stApp { background: #f7f3ee; color: #1c1917; }
 
-/* Tool cards in grid */
-.tool-grid { display: flex; flex-wrap: wrap; gap: 12px; margin: 1rem 0; }
-.tool-card {
-    background: #fdf0ea; border: 1.5px solid #e0c0b8;
-    border-radius: 12px; padding: 1rem 1.2rem;
-    flex: 1 1 180px; cursor: pointer;
-    transition: border-color 0.2s, box-shadow 0.2s;
+[data-testid="stSidebar"] { background: #1c1917 !important; border-right: none !important; }
+[data-testid="stSidebar"] * { color: #e8e0d5 !important; }
+[data-testid="stSidebar"] .stRadio label {
+    font-family: 'Jost', sans-serif !important; font-size: 0.8rem !important;
+    font-weight: 400 !important; letter-spacing: 0.1em !important;
+    text-transform: uppercase !important; padding: 0.45rem 0 !important;
+    color: #7a6e64 !important; border-bottom: 1px solid #2a2420 !important;
+    display: block; width: 100%; transition: color 0.2s;
 }
-.tool-card:hover { border-color: #b5736a; box-shadow: 0 2px 12px rgba(181,115,106,0.15); }
-.tool-card .icon { font-size: 1.6rem; margin-bottom: 6px; }
-.tool-card .label { font-weight: 600; font-size: 0.9rem; color: #3a2e2e; }
-.tool-card .desc { font-size: 0.78rem; color: #9a7e7e; margin-top: 2px; }
+[data-testid="stSidebar"] .stRadio label:hover { color: #e8e0d5 !important; }
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p { color: #4a4038 !important; font-size: 0.75rem !important; line-height: 1.6 !important; }
+[data-testid="stSidebar"] hr { border-color: #2a2420 !important; margin: 1rem 0 !important; }
 
-/* File uploader */
-[data-testid="stFileUploader"] {
-    background: #fdf0ea; border: 1.5px dashed #d4a99e; border-radius: 12px; padding: 0.8rem;
-}
-[data-testid="stFileUploader"]:hover { border-color: #b5736a; }
+.hero { text-align: center; padding: 3.5rem 1rem 2.5rem; border-bottom: 1px solid #e2d9ce; margin-bottom: 2.5rem; }
+.hero-eyebrow { font-family: 'Jost', sans-serif; font-size: 0.68rem; font-weight: 500; letter-spacing: 0.28em; text-transform: uppercase; color: #a89880; margin-bottom: 0.9rem; }
+.hero h1 { font-family: 'Cormorant Garamond', serif !important; font-size: 3.8rem !important; font-weight: 300 !important; color: #1c1917 !important; letter-spacing: -0.02em !important; line-height: 1.05 !important; margin-bottom: 0.8rem !important; }
+.hero h1 em { font-style: italic; color: #8b5e52; }
+.hero-sub { font-size: 0.78rem; color: #9a8e82; font-weight: 300; letter-spacing: 0.08em; }
 
-/* Buttons */
+.tool-heading { display: flex; align-items: baseline; gap: 0.8rem; margin-bottom: 2rem; padding-bottom: 1.2rem; border-bottom: 1px solid #e2d9ce; }
+.tool-heading .tool-icon { font-size: 1.1rem; }
+.tool-heading h2 { font-family: 'Cormorant Garamond', serif !important; font-size: 2rem !important; font-weight: 400 !important; color: #1c1917 !important; margin: 0 !important; }
+.tool-heading .tool-tag { font-size: 0.65rem; font-weight: 500; letter-spacing: 0.15em; text-transform: uppercase; color: #a89880; background: #ede6dc; padding: 3px 10px; border-radius: 20px; margin-left: 4px; }
+
+.sidebar-logo { font-family: 'Cormorant Garamond', serif; font-size: 1.5rem; font-weight: 300; color: #e8e0d5; letter-spacing: 0.04em; padding: 1.5rem 0 1.2rem; border-bottom: 1px solid #2a2420; margin-bottom: 1rem; }
+.sidebar-logo em { font-style: italic; color: #c4967a; }
+.sidebar-section { font-size: 0.6rem; letter-spacing: 0.22em; text-transform: uppercase; color: #4a4038 !important; margin: 1.2rem 0 0.6rem; font-weight: 600; }
+
+[data-testid="stFileUploader"] { background: #ffffff !important; border: 1px solid #d5ccc4 !important; border-radius: 2px !important; }
+[data-testid="stFileUploader"]:hover { border-color: #8b5e52 !important; }
+
 .stButton > button {
-    background: #7a4a45 !important; color: #fdf5f0 !important;
-    border: none !important; border-radius: 8px !important;
-    font-family: 'DM Sans', sans-serif !important; font-weight: 500 !important;
-    font-size: 0.92rem !important; padding: 0.55rem 1.5rem !important;
+    background: #1c1917 !important; color: #f7f3ee !important; border: none !important;
+    border-radius: 2px !important; font-family: 'Jost', sans-serif !important;
+    font-weight: 500 !important; font-size: 0.72rem !important;
+    letter-spacing: 0.14em !important; text-transform: uppercase !important;
+    padding: 0.7rem 2.2rem !important; transition: background 0.2s !important;
 }
-.stButton > button:hover { opacity: 0.85 !important; }
+.stButton > button:hover { background: #3d3530 !important; }
 
 [data-testid="stDownloadButton"] > button {
-    background: #3a2e2e !important; color: #e8c4b8 !important;
-    border: 1.5px solid #7a4a45 !important; border-radius: 8px !important;
-    font-family: 'DM Sans', sans-serif !important; font-weight: 500 !important;
-    width: 100%;
+    background: transparent !important; color: #1c1917 !important;
+    border: 1.5px solid #1c1917 !important; border-radius: 2px !important;
+    font-family: 'Jost', sans-serif !important; font-weight: 500 !important;
+    font-size: 0.72rem !important; letter-spacing: 0.14em !important;
+    text-transform: uppercase !important; padding: 0.65rem 1.5rem !important;
+    width: 100% !important; transition: all 0.2s !important;
 }
-[data-testid="stDownloadButton"] > button:hover { background: #7a4a45 !important; color: #fdf5f0 !important; }
+[data-testid="stDownloadButton"] > button:hover { background: #1c1917 !important; color: #f7f3ee !important; }
 
-/* Result card */
-.result-card {
-    background: #fdf0ea; border: 1px solid #e0c0b8;
-    border-radius: 12px; padding: 1rem 1.2rem; margin-bottom: 0.6rem;
+[data-testid="stInfo"] { background: #ede6dc !important; border: none !important; border-left: 3px solid #a89880 !important; border-radius: 0 !important; color: #1c1917 !important; }
+[data-testid="stSuccess"] { background: #e8ede6 !important; border: none !important; border-left: 3px solid #6b8b5e !important; border-radius: 0 !important; }
+[data-testid="stError"] { background: #f0e6e6 !important; border: none !important; border-left: 3px solid #8b5e5e !important; border-radius: 0 !important; }
+
+.result-card { background: #ffffff; border: 1px solid #e2d9ce; border-left: 3px solid #8b5e52; border-radius: 0 2px 2px 0; padding: 1rem 1.4rem; margin-bottom: 0.6rem; }
+.result-card .fname { font-family: 'Jost', sans-serif; font-weight: 500; font-size: 0.88rem; color: #1c1917; margin-bottom: 3px; }
+.result-card .fmeta { font-size: 0.76rem; color: #9a8e82; font-weight: 300; }
+
+.stProgress > div > div { background: #8b5e52 !important; }
+
+.stTextInput input, .stNumberInput input {
+    background: #ffffff !important; border: 1px solid #d5ccc4 !important;
+    border-radius: 2px !important; color: #1c1917 !important;
+    font-family: 'Jost', sans-serif !important; font-size: 0.88rem !important;
 }
-.result-card .fname { font-weight: 600; color: #3a2e2e; }
-.result-card .fmeta { font-size: 0.8rem; color: #9a7e7e; margin-top: 2px; }
+.stTextInput input:focus, .stNumberInput input:focus { border-color: #8b5e52 !important; box-shadow: 0 0 0 1px #8b5e52 !important; }
 
-/* Tabs */
-[data-testid="stTabs"] button {
-    font-family: 'DM Sans', sans-serif !important;
-    color: #9a7e7e !important; font-weight: 500 !important;
+[data-baseweb="select"] > div { background: #ffffff !important; border: 1px solid #d5ccc4 !important; border-radius: 2px !important; }
+
+label[data-testid="stWidgetLabel"] {
+    font-family: 'Jost', sans-serif !important; font-size: 0.72rem !important;
+    font-weight: 500 !important; letter-spacing: 0.12em !important;
+    text-transform: uppercase !important; color: #6b5f55 !important;
 }
-[data-testid="stTabs"] button[aria-selected="true"] {
-    color: #7a4a45 !important; border-bottom-color: #7a4a45 !important;
-}
+.stCaption, [data-testid="stCaptionContainer"] { font-size: 0.73rem !important; color: #a89880 !important; font-style: italic !important; }
 
-/* Sidebar */
-[data-testid="stSidebar"] { background: #f5e6df !important; }
-[data-testid="stSidebar"] label { color: #7a4a45 !important; }
-[data-testid="stSidebar"] .stMarkdown p { color: #9a7e7e !important; font-size: 0.82rem; }
-
-/* Inputs */
-.stTextInput input, .stNumberInput input, .stSelectbox select {
-    background: #fdf0ea !important; border-color: #d4a99e !important; color: #3a2e2e !important;
-}
-.stSlider [data-testid="stThumbValue"] { color: #7a4a45 !important; }
-div[data-baseweb="slider"] div { background: #b5736a !important; }
-
-.stProgress > div > div { background: #b5736a !important; }
-hr { border-color: #e0c0b8 !important; }
-#MainMenu, footer { visibility: hidden; }
-
-/* Page thumbnail */
-.page-thumb {
-    border: 2px solid #e0c0b8; border-radius: 8px;
-    padding: 4px; background: white; text-align: center;
-    font-size: 0.75rem; color: #9a7e7e; margin-bottom: 4px;
-}
-.page-thumb.selected { border-color: #b5736a; }
+hr { border-color: #e2d9ce !important; margin: 1.5rem 0 !important; }
+#MainMenu, footer, [data-testid="stToolbar"] { visibility: hidden; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -440,8 +436,9 @@ def reorder_pages(pdf_bytes, new_order):
 
 st.markdown("""
 <div class="hero">
-    <h1>PDF <span class="accent">Studio</span></h1>
-    <p>Convert · Merge · Split · Rotate · Watermark · Compress · Protect · Annotate</p>
+    <div class="hero-eyebrow">Professional Document Tools</div>
+    <h1>PDF <em>Studio</em></h1>
+    <div class="hero-sub">Convert &nbsp;&middot;&nbsp; Merge &nbsp;&middot;&nbsp; Split &nbsp;&middot;&nbsp; Watermark &nbsp;&middot;&nbsp; Compress &nbsp;&middot;&nbsp; Protect &nbsp;&middot;&nbsp; Annotate</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -461,14 +458,22 @@ TOOLS = [
 
 # Sidebar tool selector
 with st.sidebar:
-    st.markdown("### 🛠 Tools")
+    st.markdown("""
+    <div class="sidebar-logo">PDF <em>Studio</em></div>
+    <div class="sidebar-section">Select Tool</div>
+    """, unsafe_allow_html=True)
     tool_names = [t[1] for t in TOOLS]
     selected_tool = st.radio("", tool_names, label_visibility="collapsed")
     st.markdown("---")
-    st.markdown("<p style='color:#9a7e7e;font-size:0.8rem;'>Upload a PDF to get started with any tool.</p>", unsafe_allow_html=True)
+    st.markdown("<p style='font-size:0.74rem; color:#3a3028; line-height:1.7;'>Choose a tool, then upload your PDF file to begin.</p>", unsafe_allow_html=True)
 
-st.markdown(f"## {[t[0] for t in TOOLS if t[1]==selected_tool][0]}  {selected_tool}")
-st.markdown("---")
+icon = [t[0] for t in TOOLS if t[1]==selected_tool][0]
+desc = [t[2] for t in TOOLS if t[1]==selected_tool][0]
+st.markdown(f'''<div class="tool-heading">
+    <span class="tool-icon">{icon}</span>
+    <h2>{selected_tool}</h2>
+    <span class="tool-tag">{desc}</span>
+</div>''', unsafe_allow_html=True)
 
 # ── PDF → Word ────────────────────────────────────────────────────
 if selected_tool == "PDF → Word":
