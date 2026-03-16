@@ -1,32 +1,83 @@
 import io
 import re
 import os
+import zipfile
 import streamlit as st
 import pdfplumber
+from pdf2image import convert_from_bytes
+from PIL import Image
 from docx import Document
-from docx.shared import Pt, Inches
+from docx.shared import Pt, Inches, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
 
-st.set_page_config(page_title="PDF to Word Converter", page_icon="📄", layout="centered")
+# ── Page config ───────────────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="PDF → Word Converter",
+    page_icon="📄",
+    layout="centered"
+)
 
 st.markdown("""
 <style>
-    .stApp { background-color: #0f0f0f; color: #f0ede8; }
-    h1 { color: #c8a96e; }
-    .stButton > button {
-        background-color: #c8a96e; color: #0f0f0f;
-        border: none; border-radius: 8px; width: 100%;
-    }
-    [data-testid="stDownloadButton"] > button {
-        background-color: #1e1e1e; color: #c8a96e;
-        border: 1.5px solid #c8a96e; border-radius: 8px; width: 100%;
-    }
-    #MainMenu, footer { visibility: hidden; }
+@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500&display=swap');
+
+html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
+.stApp { background-color: #0f0f0f; color: #f0ede8; }
+h1, h2, h3 { font-family: 'DM Serif Display', serif !important; color: #f0ede8; }
+
+.hero { text-align: center; padding: 2.5rem 1rem 1.5rem; }
+.hero h1 { font-size: 2.8rem; font-weight: 400; color: #f0ede8; letter-spacing: -1px; margin-bottom: 0.3rem; }
+.hero p { color: #888; font-size: 1rem; font-weight: 300; }
+.accent { color: #c8a96e; }
+
+[data-testid="stFileUploader"] {
+    background: #1a1a1a; border: 1.5px dashed #333;
+    border-radius: 12px; padding: 1rem;
+}
+[data-testid="stFileUploader"]:hover { border-color: #c8a96e; }
+
+.stButton > button {
+    background: #c8a96e !important; color: #0f0f0f !important;
+    border: none !important; border-radius: 8px !important;
+    font-family: 'DM Sans', sans-serif !important;
+    font-weight: 500 !important; font-size: 0.95rem !important;
+    padding: 0.6rem 2rem !important; width: 100%;
+}
+.stButton > button:hover { opacity: 0.85 !important; }
+
+[data-testid="stDownloadButton"] > button {
+    background: #1e1e1e !important; color: #c8a96e !important;
+    border: 1.5px solid #c8a96e !important; border-radius: 8px !important;
+    font-family: 'DM Sans', sans-serif !important;
+    font-weight: 500 !important; width: 100%;
+}
+[data-testid="stDownloadButton"] > button:hover {
+    background: #c8a96e !important; color: #0f0f0f !important;
+}
+
+.stProgress > div > div { background: #c8a96e !important; }
+.result-card {
+    background: #1a1a1a; border: 1px solid #2a2a2a;
+    border-radius: 12px; padding: 1.2rem 1.4rem; margin-bottom: 0.8rem;
+}
+.result-card .filename { font-weight: 500; color: #f0ede8; margin-bottom: 4px; }
+.result-card .meta { font-size: 0.82rem; color: #666; }
+.option-box {
+    background: #1a1a1a; border: 1px solid #2a2a2a;
+    border-radius: 12px; padding: 1.2rem 1.4rem; margin-bottom: 1rem;
+}
+hr { border-color: #222 !important; }
+#MainMenu, footer { visibility: hidden; }
+
+/* Sidebar */
+[data-testid="stSidebar"] { background: #111 !important; }
+[data-testid="stSidebar"] label { color: #aaa !important; }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("PDF → Word Converter")
-st.write("Upload one or more PDFs and download clean Word documents.")
-
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def clean_text(text):
     if not text:
@@ -45,22 +96,76 @@ def looks_like_heading(text, font_size=None, is_bold=False):
     if is_bold and len(s) <= 80 and not s.endswith('.'):
         return 2
     if font_size:
-        if font_size >= 18:
-            return 1
-        if font_size >= 14:
-            return 2
-        if font_size >= 12 and is_bold:
-            return 3
+        if font_size >= 18: return 1
+        if font_size >= 14: return 2
+        if font_size >= 12 and is_bold: return 3
     return 0
 
 
+def set_table_border(table):
+    """Add clean borders to a Word table."""
+    tbl = table._tbl
+    tblPr = tbl.tblPr if tbl.tblPr is not None else OxmlElement('w:tblPr')
+    tblBorders = OxmlElement('w:tblBorders')
+    for edge in ('top', 'left', 'bottom', 'right', 'insideH', 'insideV'):
+        border = OxmlElement(f'w:{edge}')
+        border.set(qn('w:val'), 'single')
+        border.set(qn('w:sz'), '4')
+        border.set(qn('w:space'), '0')
+        border.set(qn('w:color'), 'AAAAAA')
+        tblBorders.append(border)
+    tblPr.append(tblBorders)
+
+
+def add_table_to_doc(doc, table_data, font_size_pt=11):
+    """Add a well-formatted table to the Word doc."""
+    rows = [r for r in table_data if any(c for c in r)]
+    if not rows:
+        return
+    num_cols = max(len(r) for r in rows)
+    tbl = doc.add_table(rows=len(rows), cols=num_cols)
+    tbl.style = 'Table Grid'
+
+    for r_idx, row in enumerate(rows):
+        for c_idx in range(num_cols):
+            cell_text = row[c_idx] if c_idx < len(row) else ""
+            cell = tbl.cell(r_idx, c_idx)
+            cell.text = clean_text(cell_text or "")
+            para = cell.paragraphs[0]
+            for run in para.runs:
+                run.font.size = Pt(font_size_pt - 1)
+                if r_idx == 0:
+                    run.bold = True
+                    run.font.color.rgb = RGBColor(0x33, 0x33, 0x33)
+            # Header row shading
+            if r_idx == 0:
+                tc = cell._tc
+                tcPr = tc.get_or_add_tcPr()
+                shd = OxmlElement('w:shd')
+                shd.set(qn('w:val'), 'clear')
+                shd.set(qn('w:color'), 'auto')
+                shd.set(qn('w:fill'), 'E8E8E8')
+                tcPr.append(shd)
+
+    set_table_border(tbl)
+    doc.add_paragraph()  # spacing after table
+
+
 def extract_page_content(page):
+    """Extract structured content from a PDF page."""
     content = []
     tables = page.extract_tables()
     try:
         table_bboxes = [t.bbox for t in page.find_tables()]
     except Exception:
         table_bboxes = []
+
+    # Extract images / figures with their bounding boxes
+    try:
+        image_bboxes = [(img['x0'], img['top'], img['x1'], img['bottom'])
+                        for img in page.images]
+    except Exception:
+        image_bboxes = []
 
     words = page.extract_words(extra_attrs=["size", "fontname"])
     if not words:
@@ -69,26 +174,28 @@ def extract_page_content(page):
             for line in raw.splitlines():
                 line = clean_text(line)
                 if line:
-                    content.append({"type": "paragraph", "text": line, "font_size": None, "bold": False})
+                    content.append({"type": "paragraph", "text": line,
+                                    "font_size": None, "bold": False})
         for tbl in tables:
             if tbl:
                 content.append({"type": "table", "data": tbl})
-        return content
+        return content, image_bboxes
 
     lines = {}
     for w in words:
-        key = round(w['top'], 1)
-        lines.setdefault(key, []).append(w)
+        lines.setdefault(round(w['top'], 1), []).append(w)
 
-    def in_table(y):
-        for bbox in table_bboxes:
+    def in_region(y, bboxes):
+        for bbox in bboxes:
             if bbox[1] <= y <= bbox[3]:
                 return True
         return False
 
     prev_bottom = None
     for top, line_words in sorted(lines.items()):
-        if in_table(top):
+        if in_region(top, table_bboxes):
+            continue
+        if in_region(top, image_bboxes):
             continue
         line_words.sort(key=lambda w: w['x0'])
         line_text = clean_text(' '.join(w['text'] for w in line_words))
@@ -98,65 +205,160 @@ def extract_page_content(page):
         font_size = max(sizes) if sizes else None
         fontnames = [w.get('fontname', '') for w in line_words]
         is_bold = any('Bold' in fn or 'bold' in fn for fn in fontnames)
-        gap = (top - prev_bottom) if prev_bottom is not None else 0
-        if gap > 12:
+        if prev_bottom and (top - prev_bottom) > 12:
             content.append({"type": "blank"})
-        content.append({"type": "paragraph", "text": line_text, "font_size": font_size, "bold": is_bold})
+        content.append({"type": "paragraph", "text": line_text,
+                         "font_size": font_size, "bold": is_bold})
         prev_bottom = top + line_words[0].get('height', 10)
 
     for tbl in tables:
         if tbl:
             content.append({"type": "table", "data": tbl})
 
-    return content
+    return content, image_bboxes
 
 
-def add_table_to_doc(doc, table_data):
-    rows = [r for r in table_data if any(c for c in r)]
-    if not rows:
-        return
-    num_cols = max(len(r) for r in rows)
-    tbl = doc.add_table(rows=len(rows), cols=num_cols)
-    tbl.style = 'Table Grid'
-    for r_idx, row in enumerate(rows):
-        for c_idx, cell_text in enumerate(row):
-            if c_idx < num_cols:
-                cell = tbl.cell(r_idx, c_idx)
-                cell.text = clean_text(cell_text or "")
-                if r_idx == 0:
-                    for run in cell.paragraphs[0].runs:
-                        run.bold = True
+def crop_image_from_page(page_image: Image.Image, bbox, page_width, page_height):
+    """Crop a region from the page image given PDF coordinates."""
+    img_w, img_h = page_image.size
+    scale_x = img_w / page_width
+    scale_y = img_h / page_height
+    x0 = int(bbox[0] * scale_x)
+    y0 = int(bbox[1] * scale_y)
+    x1 = int(bbox[2] * scale_x)
+    y1 = int(bbox[3] * scale_y)
+    # Add small padding
+    pad = 4
+    x0 = max(0, x0 - pad)
+    y0 = max(0, y0 - pad)
+    x1 = min(img_w, x1 + pad)
+    y1 = min(img_h, y1 + pad)
+    if x1 <= x0 or y1 <= y0:
+        return None
+    return page_image.crop((x0, y0, x1, y1))
 
 
-def convert_pdf_to_docx(pdf_bytes):
+def convert_pdf_to_docx(
+    pdf_bytes: bytes,
+    font_size: int = 11,
+    include_images: bool = True,
+    ocr_fallback: bool = True,
+    dpi: int = 150,
+) -> bytes:
+    """Full conversion: text + tables + figures → .docx"""
+
     doc = Document()
     for section in doc.sections:
         section.top_margin = Inches(1)
         section.bottom_margin = Inches(1)
         section.left_margin = Inches(1.2)
         section.right_margin = Inches(1.2)
-    doc.styles['Normal'].font.name = 'Calibri'
-    doc.styles['Normal'].font.size = Pt(11)
+
+    normal = doc.styles['Normal']
+    normal.font.name = 'Calibri'
+    normal.font.size = Pt(font_size)
+
+    # Pre-render all pages as images for figure extraction
+    page_images = []
+    if include_images:
+        try:
+            page_images = convert_from_bytes(pdf_bytes, dpi=dpi)
+        except Exception:
+            page_images = []
 
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
         total = len(pdf.pages)
-        for i, page in enumerate(pdf.pages):
-            for item in extract_page_content(page):
+
+        for page_num, page in enumerate(pdf.pages):
+            content, image_bboxes = extract_page_content(page)
+
+            # Check if page has extractable text
+            raw_text = page.extract_text() or ""
+            has_text = len(raw_text.strip()) > 20
+
+            # OCR fallback for scanned pages
+            if not has_text and ocr_fallback and page_images:
+                try:
+                    import pytesseract
+                    pg_img = page_images[page_num] if page_num < len(page_images) else None
+                    if pg_img:
+                        ocr_text = pytesseract.image_to_string(pg_img)
+                        for line in ocr_text.splitlines():
+                            line = clean_text(line)
+                            if line:
+                                content.append({"type": "paragraph", "text": line,
+                                                "font_size": None, "bold": False})
+                except Exception:
+                    pass
+
+            # Write content to doc
+            for item in content:
                 if item["type"] == "blank":
                     continue
+
                 elif item["type"] == "paragraph":
                     text = item["text"]
                     level = looks_like_heading(text, item.get("font_size"), item.get("bold", False))
                     if level in (1, 2, 3):
-                        doc.add_heading(text, level=level)
+                        h = doc.add_heading(text, level=level)
+                        h.runs[0].font.size = Pt(font_size + (6 - level * 2))
                     else:
                         p = doc.add_paragraph(text)
-                        if item.get("bold"):
-                            for run in p.runs:
+                        for run in p.runs:
+                            run.font.size = Pt(font_size)
+                            if item.get("bold"):
                                 run.bold = True
+
                 elif item["type"] == "table":
-                    add_table_to_doc(doc, item["data"])
-            if i < total - 1:
+                    add_table_to_doc(doc, item["data"], font_size)
+
+            # Embed figures/images from this page
+            if include_images and page_images and page_num < len(page_images):
+                pg_img = page_images[page_num]
+                # Deduplicate overlapping bboxes
+                used = []
+                for bbox in image_bboxes:
+                    # Skip tiny regions (likely decorative)
+                    w = bbox[2] - bbox[0]
+                    h = bbox[3] - bbox[1]
+                    if w < 20 or h < 20:
+                        continue
+                    # Skip if overlaps with already-used region
+                    overlap = False
+                    for u in used:
+                        if not (bbox[2] < u[0] or bbox[0] > u[2] or
+                                bbox[3] < u[1] or bbox[1] > u[3]):
+                            overlap = True
+                            break
+                    if overlap:
+                        continue
+                    used.append(bbox)
+
+                    cropped = crop_image_from_page(
+                        pg_img, bbox, page.width, page.height
+                    )
+                    if cropped is None:
+                        continue
+
+                    img_buf = io.BytesIO()
+                    cropped.save(img_buf, format='PNG')
+                    img_buf.seek(0)
+
+                    # Scale to fit page width (max 5 inches)
+                    img_w_px, img_h_px = cropped.size
+                    max_width = Inches(5)
+                    aspect = img_h_px / img_w_px if img_w_px > 0 else 1
+                    display_w = min(max_width, Inches(img_w_px / dpi))
+                    display_h = display_w * aspect
+
+                    p = doc.add_paragraph()
+                    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    run = p.add_run()
+                    run.add_picture(img_buf, width=display_w)
+                    doc.add_paragraph()  # spacing after image
+
+            # Page break between PDF pages
+            if page_num < total - 1:
                 doc.add_page_break()
 
     buf = io.BytesIO()
@@ -164,27 +366,106 @@ def convert_pdf_to_docx(pdf_bytes):
     return buf.getvalue()
 
 
+# ── Sidebar options ───────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("### ⚙️ Options")
+    font_size = st.slider("Font size (pt)", min_value=9, max_value=14, value=11)
+    include_images = st.checkbox("Extract figures & charts", value=True)
+    ocr_fallback = st.checkbox("OCR for scanned PDFs", value=True)
+    image_dpi = st.select_slider("Image quality (DPI)", options=[72, 100, 150, 200], value=150)
+    batch_zip = st.checkbox("Download all as ZIP", value=False)
+    st.markdown("---")
+    st.markdown("<p style='color:#555; font-size:0.8rem;'>Higher DPI = better quality but slower conversion.</p>", unsafe_allow_html=True)
+
+# ── Main UI ───────────────────────────────────────────────────────────────────
+st.markdown("""
+<div class="hero">
+    <h1>PDF <span class="accent">→</span> Word</h1>
+    <p>Convert PDFs to clean Word documents · Tables · Figures · Charts · OCR</p>
+</div>
+""", unsafe_allow_html=True)
+
 uploaded_files = st.file_uploader(
-    "Upload PDF files",
+    "Drop your PDFs here",
     type=["pdf"],
-    accept_multiple_files=True
+    accept_multiple_files=True,
+    label_visibility="collapsed",
 )
 
 if uploaded_files:
-    st.write(f"{len(uploaded_files)} file(s) ready to convert.")
-    if st.button("Convert to Word"):
-        for f in uploaded_files:
-            with st.spinner(f"Converting {f.name}..."):
+    st.markdown(f"<p style='color:#666; font-size:0.85rem; margin:0.5rem 0;'>{len(uploaded_files)} file(s) selected</p>", unsafe_allow_html=True)
+
+    if st.button("Convert to Word", use_container_width=True):
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.markdown("### Results")
+
+        results = []
+        progress = st.progress(0)
+
+        for idx, f in enumerate(uploaded_files):
+            with st.spinner(f"Converting {f.name}…"):
                 try:
-                    docx_bytes = convert_pdf_to_docx(f.read())
-                    out_name = os.path.splitext(f.name)[0] + ".docx"
-                    st.success(f"✅ {f.name} converted!")
-                    st.download_button(
-                        label=f"⬇ Download {out_name}",
-                        data=docx_bytes,
-                        file_name=out_name,
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        key=out_name
+                    docx_bytes = convert_pdf_to_docx(
+                        f.read(),
+                        font_size=font_size,
+                        include_images=include_images,
+                        ocr_fallback=ocr_fallback,
+                        dpi=image_dpi,
                     )
+                    out_name = os.path.splitext(f.name)[0] + ".docx"
+                    results.append({"name": f.name, "out": out_name,
+                                    "bytes": docx_bytes, "ok": True})
                 except Exception as e:
-                    st.error(f"❌ Failed to convert {f.name}: {e}")
+                    results.append({"name": f.name, "error": str(e), "ok": False})
+            progress.progress((idx + 1) / len(uploaded_files))
+
+        progress.empty()
+
+        # Individual download buttons
+        if not batch_zip:
+            for r in results:
+                st.markdown(f"""
+                <div class="result-card">
+                    <div class="filename">📄 {r['name']}</div>
+                    <div class="meta">{'✓ Converted successfully' if r['ok'] else f'✗ {r.get("error","Unknown error")}'}</div>
+                </div>
+                """, unsafe_allow_html=True)
+                if r["ok"]:
+                    st.download_button(
+                        label=f"⬇  Download {r['out']}",
+                        data=r["bytes"],
+                        file_name=r["out"],
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        key=r["out"],
+                    )
+
+        # ZIP download
+        else:
+            ok_results = [r for r in results if r["ok"]]
+            failed = [r for r in results if not r["ok"]]
+
+            if ok_results:
+                zip_buf = io.BytesIO()
+                with zipfile.ZipFile(zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+                    for r in ok_results:
+                        zf.writestr(r["out"], r["bytes"])
+                zip_buf.seek(0)
+
+                st.success(f"✅ {len(ok_results)} file(s) converted!")
+                st.download_button(
+                    label=f"⬇  Download all as ZIP ({len(ok_results)} files)",
+                    data=zip_buf.getvalue(),
+                    file_name="converted_documents.zip",
+                    mime="application/zip",
+                    key="zip_download"
+                )
+
+            for r in failed:
+                st.error(f"❌ {r['name']}: {r.get('error', 'Unknown error')}")
+
+else:
+    st.markdown("""
+    <div style='text-align:center; color:#444; padding:2rem 0; font-size:0.9rem;'>
+        Text · Tables · Figures · Charts · OCR for scanned PDFs
+    </div>
+    """, unsafe_allow_html=True)
