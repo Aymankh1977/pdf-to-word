@@ -1,3 +1,6 @@
 streamlit
 pdfplumber
 python-docx
+pdf2image
+Pillow
+pytesseract
