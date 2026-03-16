@@ -24,22 +24,22 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500&display=swap');
 
 html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
-.stApp { background-color: #2b2b2b; color: #f0ede8; }
-h1, h2, h3 { font-family: 'DM Serif Display', serif !important; color: #f0ede8; }
+.stApp { background-color: #fdf5f0; color: #3a2e2e; }
+h1, h2, h3 { font-family: 'DM Serif Display', serif !important; color: #3a2e2e; }
 
 .hero { text-align: center; padding: 2.5rem 1rem 1.5rem; }
-.hero h1 { font-size: 2.8rem; font-weight: 400; color: #f0ede8; letter-spacing: -1px; margin-bottom: 0.3rem; }
-.hero p { color: #bbb; font-size: 1rem; font-weight: 300; }
-.accent { color: #c8a96e; }
+.hero h1 { font-size: 2.8rem; font-weight: 400; color: #3a2e2e; letter-spacing: -1px; margin-bottom: 0.3rem; }
+.hero p { color: #9a7e7e; font-size: 1rem; font-weight: 300; }
+.accent { color: #b5736a; }
 
 [data-testid="stFileUploader"] {
-    background: #363636; border: 1.5px dashed #555;
+    background: #fdf0ea; border: 1.5px dashed #d4a99e;
     border-radius: 12px; padding: 1rem;
 }
-[data-testid="stFileUploader"]:hover { border-color: #c8a96e; }
+[data-testid="stFileUploader"]:hover { border-color: #b5736a; }
 
 .stButton > button {
-    background: #c8a96e !important; color: #0f0f0f !important;
+    background: #7a4a45 !important; color: #fdf5f0 !important;
     border: none !important; border-radius: 8px !important;
     font-family: 'DM Sans', sans-serif !important;
     font-weight: 500 !important; font-size: 0.95rem !important;
@@ -48,32 +48,32 @@ h1, h2, h3 { font-family: 'DM Serif Display', serif !important; color: #f0ede8; 
 .stButton > button:hover { opacity: 0.85 !important; }
 
 [data-testid="stDownloadButton"] > button {
-    background: #363636 !important; color: #c8a96e !important;
-    border: 1.5px solid #c8a96e !important; border-radius: 8px !important;
+    background: #3a2e2e !important; color: #e8c4b8 !important;
+    border: 1.5px solid #7a4a45 !important; border-radius: 8px !important;
     font-family: 'DM Sans', sans-serif !important;
     font-weight: 500 !important; width: 100%;
 }
 [data-testid="stDownloadButton"] > button:hover {
-    background: #c8a96e !important; color: #0f0f0f !important;
+    background: #7a4a45 !important; color: #fdf5f0 !important;
 }
 
-.stProgress > div > div { background: #c8a96e !important; }
+.stProgress > div > div { background: #b5736a !important; }
 .result-card {
-    background: #363636; border: 1px solid #484848;
+    background: #fdf0ea; border: 1px solid #e0c0b8;
     border-radius: 12px; padding: 1.2rem 1.4rem; margin-bottom: 0.8rem;
 }
-.result-card .filename { font-weight: 500; color: #f0ede8; margin-bottom: 4px; }
-.result-card .meta { font-size: 0.82rem; color: #aaa; }
+.result-card .filename { font-weight: 500; color: #3a2e2e; margin-bottom: 4px; }
+.result-card .meta { font-size: 0.82rem; color: #9a7e7e; }
 .option-box {
-    background: #363636; border: 1px solid #484848;
+    background: #fdf0ea; border: 1px solid #e0c0b8;
     border-radius: 12px; padding: 1.2rem 1.4rem; margin-bottom: 1rem;
 }
-hr { border-color: #484848 !important; }
+hr { border-color: #e0c0b8 !important; }
 #MainMenu, footer { visibility: hidden; }
 
 /* Sidebar */
-[data-testid="stSidebar"] { background: #333333 !important; }
-[data-testid="stSidebar"] label { color: #ccc !important; }
+[data-testid="stSidebar"] { background: #f5e6df !important; }
+[data-testid="stSidebar"] label { color: #7a4a45 !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -375,7 +375,7 @@ with st.sidebar:
     image_dpi = st.select_slider("Image quality (DPI)", options=[72, 100, 150, 200], value=150)
     batch_zip = st.checkbox("Download all as ZIP", value=False)
     st.markdown("---")
-    st.markdown("<p style='color:#555; font-size:0.8rem;'>Higher DPI = better quality but slower conversion.</p>", unsafe_allow_html=True)
+    st.markdown("<p style='color:#9a7e7e; font-size:0.8rem;'>Higher DPI = better quality but slower conversion.</p>", unsafe_allow_html=True)
 
 # ── Main UI ───────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -465,7 +465,7 @@ if uploaded_files:
 
 else:
     st.markdown("""
-    <div style='text-align:center; color:#888; padding:2rem 0; font-size:0.9rem;'>
+    <div style='text-align:center; color:#c4a09a; padding:2rem 0; font-size:0.9rem;'>
         Text · Tables · Figures · Charts · OCR for scanned PDFs
     </div>
     """, unsafe_allow_html=True)
