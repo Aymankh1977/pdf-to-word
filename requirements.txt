@@ -4,3 +4,6 @@ python-docx
 pdf2image
 Pillow
 pytesseract
+pypdf
+pikepdf
+reportlab
