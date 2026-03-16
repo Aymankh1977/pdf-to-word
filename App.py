@@ -703,28 +703,172 @@ elif selected_tool == "Extract Images":
 # ── Add Text Annotation ───────────────────────────────────────────
 elif selected_tool == "Add Text":
     f = st.file_uploader("Upload PDF", type=["pdf"])
+
+    FONTS = {
+        "Serif — FreeSerif Regular":      "/usr/share/fonts/truetype/freefont/FreeSerif.ttf",
+        "Serif — FreeSerif Bold":         "/usr/share/fonts/truetype/freefont/FreeSerifBold.ttf",
+        "Serif — FreeSerif Italic":       "/usr/share/fonts/truetype/freefont/FreeSerifItalic.ttf",
+        "Serif — FreeSerif Bold Italic":  "/usr/share/fonts/truetype/freefont/FreeSerifBoldItalic.ttf",
+        "Sans — FreeSans Regular":        "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+        "Sans — FreeSans Bold":           "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+        "Sans — FreeSans Oblique":        "/usr/share/fonts/truetype/freefont/FreeSansOblique.ttf",
+        "Sans — FreeSans Bold Oblique":   "/usr/share/fonts/truetype/freefont/FreeSansBoldOblique.ttf",
+        "Mono — FreeMono":                "/usr/share/fonts/truetype/freefont/FreeMono.ttf",
+        "Mono — FreeMono Bold":           "/usr/share/fonts/truetype/freefont/FreeMonoBold.ttf",
+        "DejaVu Sans":                    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "DejaVu Sans Bold":               "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    }
+
     if f:
         pdf_bytes = f.read()
         info = get_pdf_info(pdf_bytes)
-        col1, col2 = st.columns(2)
-        with col1:
-            annot_text = st.text_input("Text to add", value="Approved")
-            page_num = st.number_input("Page number", 1, info["pages"], 1)
-            font_size_a = st.slider("Font size", 8, 72, 16)
-        with col2:
-            x_pos = st.slider("X position (from left)", 0, 600, 100)
-            y_pos = st.slider("Y position (from bottom)", 0, 800, 100)
-            color_a = st.color_picker("Text colour", "#cc0000")
 
-        if st.button("Add Text"):
-            with st.spinner("Adding text…"):
-                try:
-                    result = add_text_annotation(pdf_bytes, annot_text, page_num, x_pos, y_pos, font_size_a, color_a)
-                    st.success(f"✅ Text added to page {page_num}!")
-                    out_name = os.path.splitext(f.name)[0] + "_annotated.pdf"
-                    st.download_button("⬇ Download", result, out_name, "application/pdf")
-                except Exception as e:
-                    st.error(f"❌ {e}")
+        # ── Text & Style controls ──────────────────────────────
+        st.markdown("#### Text Content")
+        annot_text = st.text_area("Text to add (supports Arabic, English, or mixed)", value="Your text here", height=80)
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            font_name = st.selectbox("Font", list(FONTS.keys()), index=0)
+            font_path = FONTS[font_name]
+        with col2:
+            font_size_a = st.slider("Font size (pt)", 8, 96, 18)
+            color_a = st.color_picker("Text colour", "#1c1917")
+        with col3:
+            page_num = st.number_input("Page", 1, info["pages"], 1)
+            opacity_a = st.slider("Opacity", 0.1, 1.0, 1.0)
+
+        st.markdown("---")
+
+        # ── Interactive placement ──────────────────────────────
+        st.markdown("#### Position on Page")
+        st.caption("Click on the page preview to set where your text will appear, or use the sliders.")
+
+        # Render preview of selected page
+        try:
+            from pdf2image import convert_from_bytes as cfb
+            preview_imgs = cfb(pdf_bytes, dpi=120, first_page=page_num, last_page=page_num)
+            preview_img = preview_imgs[0] if preview_imgs else None
+        except Exception:
+            preview_img = None
+
+        if preview_img:
+            prev_w, prev_h = preview_img.size
+            # Show preview with text overlay using Pillow
+            try:
+                from PIL import ImageFont, ImageDraw
+                preview_copy = preview_img.copy().convert("RGBA")
+                draw = ImageDraw.Draw(preview_copy)
+                prev_font = ImageFont.truetype(font_path, max(8, font_size_a))
+                # Get coords from sliders (as % of page)
+                x_pct = st.slider("Horizontal position (%)", 0, 95, 10, key="xpct")
+                y_pct = st.slider("Vertical position (%)", 0, 95, 10, key="ypct")
+                px = int(x_pct / 100 * prev_w)
+                py = int(y_pct / 100 * prev_h)
+                # Parse colour
+                ch = color_a.lstrip("#")
+                cr, cg, cb = int(ch[0:2],16), int(ch[2:4],16), int(ch[4:6],16)
+                alpha = int(opacity_a * 255)
+                draw.text((px, py), annot_text, font=prev_font, fill=(cr, cg, cb, alpha))
+                # Draw crosshair
+                draw.line([(px-10,py),(px+10,py)], fill=(180,80,60,200), width=1)
+                draw.line([(px,py-10),(px,py+10)], fill=(180,80,60,200), width=1)
+                st.image(preview_copy, caption=f"Preview — Page {page_num}", use_column_width=True)
+            except Exception as e:
+                st.image(preview_img, caption=f"Page {page_num}", use_column_width=True)
+                x_pct = st.slider("Horizontal position (%)", 0, 95, 10, key="xpct2")
+                y_pct = st.slider("Vertical position (%)", 0, 95, 10, key="ypct2")
+        else:
+            x_pct = st.slider("Horizontal position (%)", 0, 95, 10, key="xpct3")
+            y_pct = st.slider("Vertical position (%)", 0, 95, 10, key="ypct3")
+
+        st.markdown("---")
+
+        # ── Multiple annotations ───────────────────────────────
+        if "annotations" not in st.session_state:
+            st.session_state.annotations = []
+
+        cola, colb = st.columns([1,1])
+        with cola:
+            if st.button("＋ Queue this text annotation"):
+                st.session_state.annotations.append({
+                    "text": annot_text, "font": font_path,
+                    "size": font_size_a, "color": color_a,
+                    "opacity": opacity_a, "page": page_num,
+                    "x_pct": x_pct, "y_pct": y_pct,
+                })
+                st.success(f"Queued: \"{annot_text[:30]}…\" on page {page_num}")
+
+        with colb:
+            if st.session_state.annotations and st.button("🗑 Clear all queued"):
+                st.session_state.annotations = []
+
+        if st.session_state.annotations:
+            st.markdown(f"**{len(st.session_state.annotations)} annotation(s) queued:**")
+            for i, ann in enumerate(st.session_state.annotations):
+                st.markdown(f'<div class="result-card"><div class="fname">"{ann["text"][:40]}"</div>'
+                    f'<div class="fmeta">Page {ann["page"]} · {os.path.basename(ann["font"]).replace(".ttf","")} · {ann["size"]}pt · ({ann["x_pct"]}%, {ann["y_pct"]}%)</div></div>',
+                    unsafe_allow_html=True)
+
+        if st.button("Apply All Annotations to PDF", use_container_width=True):
+            if not st.session_state.annotations:
+                st.warning("Queue at least one annotation first.")
+            else:
+                with st.spinner("Applying annotations…"):
+                    try:
+                        from PIL import ImageFont, ImageDraw
+                        from reportlab.lib.utils import ImageReader
+                        from reportlab.pdfgen import canvas as rl_canvas
+
+                        result_bytes = pdf_bytes
+                        for ann in st.session_state.annotations:
+                            # Render text as transparent image via Pillow (handles Arabic RTL)
+                            font_pil = ImageFont.truetype(ann["font"], ann["size"] * 3)
+                            dummy = Image.new("RGBA", (1,1))
+                            bbox = ImageDraw.Draw(dummy).textbbox((0,0), ann["text"], font=font_pil)
+                            tw, th = bbox[2]-bbox[0]+20, bbox[3]-bbox[1]+20
+                            txt_img = Image.new("RGBA", (max(1,tw), max(1,th)), (255,255,255,0))
+                            ch = ann["color"].lstrip("#")
+                            cr,cg,cb = int(ch[0:2],16),int(ch[2:4],16),int(ch[4:6],16)
+                            alpha = int(ann["opacity"]*255)
+                            ImageDraw.Draw(txt_img).text((10,10), ann["text"], font=font_pil, fill=(cr,cg,cb,alpha))
+
+                            # Get actual PDF page dimensions
+                            reader_tmp = PdfReader(io.BytesIO(result_bytes))
+                            page_tmp = reader_tmp.pages[ann["page"]-1]
+                            pdf_w = float(page_tmp.mediabox.width)
+                            pdf_h = float(page_tmp.mediabox.height)
+
+                            # Convert % position to PDF coords (origin bottom-left)
+                            x_pdf = (ann["x_pct"] / 100) * pdf_w
+                            y_pdf = pdf_h - (ann["y_pct"] / 100) * pdf_h - (th/3)
+
+                            # Build overlay
+                            img_buf = io.BytesIO()
+                            txt_img.save(img_buf, "PNG"); img_buf.seek(0)
+                            overlay_buf = io.BytesIO()
+                            c = rl_canvas.Canvas(overlay_buf, pagesize=(pdf_w, pdf_h))
+                            c.drawImage(ImageReader(img_buf), x_pdf, y_pdf,
+                                        width=tw/3, height=th/3, mask="auto")
+                            c.save()
+
+                            # Merge overlay onto selected page
+                            overlay_page = PdfReader(io.BytesIO(overlay_buf.getvalue())).pages[0]
+                            reader2 = PdfReader(io.BytesIO(result_bytes))
+                            writer2 = PdfWriter()
+                            for i2, pg in enumerate(reader2.pages):
+                                if i2 == ann["page"]-1:
+                                    pg.merge_page(overlay_page)
+                                writer2.add_page(pg)
+                            out2 = io.BytesIO(); writer2.write(out2)
+                            result_bytes = out2.getvalue()
+
+                        st.success(f"✅ {len(st.session_state.annotations)} annotation(s) applied!")
+                        out_name = os.path.splitext(f.name)[0] + "_annotated.pdf"
+                        st.download_button("⬇ Download Annotated PDF", result_bytes, out_name, "application/pdf")
+                        st.session_state.annotations = []
+                    except Exception as e:
+                        st.error(f"❌ {e}")
 
 # ── Redact ────────────────────────────────────────────────────────
 elif selected_tool == "Redact":
