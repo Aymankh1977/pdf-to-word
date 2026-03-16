@@ -7,3 +7,5 @@ pytesseract
 pypdf
 pikepdf
 reportlab
+arabic-reshaper
+python-bidi
