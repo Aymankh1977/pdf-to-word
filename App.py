@@ -24,16 +24,16 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500&display=swap');
 
 html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
-.stApp { background-color: #0f0f0f; color: #f0ede8; }
+.stApp { background-color: #2b2b2b; color: #f0ede8; }
 h1, h2, h3 { font-family: 'DM Serif Display', serif !important; color: #f0ede8; }
 
 .hero { text-align: center; padding: 2.5rem 1rem 1.5rem; }
 .hero h1 { font-size: 2.8rem; font-weight: 400; color: #f0ede8; letter-spacing: -1px; margin-bottom: 0.3rem; }
-.hero p { color: #888; font-size: 1rem; font-weight: 300; }
+.hero p { color: #bbb; font-size: 1rem; font-weight: 300; }
 .accent { color: #c8a96e; }
 
 [data-testid="stFileUploader"] {
-    background: #1a1a1a; border: 1.5px dashed #333;
+    background: #363636; border: 1.5px dashed #555;
     border-radius: 12px; padding: 1rem;
 }
 [data-testid="stFileUploader"]:hover { border-color: #c8a96e; }
@@ -48,7 +48,7 @@ h1, h2, h3 { font-family: 'DM Serif Display', serif !important; color: #f0ede8; 
 .stButton > button:hover { opacity: 0.85 !important; }
 
 [data-testid="stDownloadButton"] > button {
-    background: #1e1e1e !important; color: #c8a96e !important;
+    background: #363636 !important; color: #c8a96e !important;
     border: 1.5px solid #c8a96e !important; border-radius: 8px !important;
     font-family: 'DM Sans', sans-serif !important;
     font-weight: 500 !important; width: 100%;
@@ -59,21 +59,21 @@ h1, h2, h3 { font-family: 'DM Serif Display', serif !important; color: #f0ede8; 
 
 .stProgress > div > div { background: #c8a96e !important; }
 .result-card {
-    background: #1a1a1a; border: 1px solid #2a2a2a;
+    background: #363636; border: 1px solid #484848;
     border-radius: 12px; padding: 1.2rem 1.4rem; margin-bottom: 0.8rem;
 }
 .result-card .filename { font-weight: 500; color: #f0ede8; margin-bottom: 4px; }
-.result-card .meta { font-size: 0.82rem; color: #666; }
+.result-card .meta { font-size: 0.82rem; color: #aaa; }
 .option-box {
-    background: #1a1a1a; border: 1px solid #2a2a2a;
+    background: #363636; border: 1px solid #484848;
     border-radius: 12px; padding: 1.2rem 1.4rem; margin-bottom: 1rem;
 }
-hr { border-color: #222 !important; }
+hr { border-color: #484848 !important; }
 #MainMenu, footer { visibility: hidden; }
 
 /* Sidebar */
-[data-testid="stSidebar"] { background: #111 !important; }
-[data-testid="stSidebar"] label { color: #aaa !important; }
+[data-testid="stSidebar"] { background: #333333 !important; }
+[data-testid="stSidebar"] label { color: #ccc !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -465,7 +465,7 @@ if uploaded_files:
 
 else:
     st.markdown("""
-    <div style='text-align:center; color:#444; padding:2rem 0; font-size:0.9rem;'>
+    <div style='text-align:center; color:#888; padding:2rem 0; font-size:0.9rem;'>
         Text · Tables · Figures · Charts · OCR for scanned PDFs
     </div>
     """, unsafe_allow_html=True)
