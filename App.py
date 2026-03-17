@@ -702,354 +702,309 @@ elif selected_tool == "Extract Images":
 
 # ── Add Text Annotation ───────────────────────────────────────────
 elif selected_tool == "Add Text":
-    f = st.file_uploader("Upload PDF", type=["pdf"])
 
     FONTS = {
-        "Serif Regular (Arabic ✓)":      "/usr/share/fonts/truetype/freefont/FreeSerif.ttf",
-        "Serif Bold (Arabic ✓)":         "/usr/share/fonts/truetype/freefont/FreeSerifBold.ttf",
-        "Serif Italic (Arabic ✓)":       "/usr/share/fonts/truetype/freefont/FreeSerifItalic.ttf",
-        "Serif Bold Italic (Arabic ✓)":  "/usr/share/fonts/truetype/freefont/FreeSerifBoldItalic.ttf",
-        "Sans Regular (Arabic ✓)":       "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-        "Sans Bold (Arabic ✓)":          "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
-        "Sans Oblique (Arabic ✓)":       "/usr/share/fonts/truetype/freefont/FreeSansOblique.ttf",
-        "Sans Bold Oblique (Arabic ✓)":  "/usr/share/fonts/truetype/freefont/FreeSansBoldOblique.ttf",
-        "Mono Regular":                  "/usr/share/fonts/truetype/freefont/FreeMono.ttf",
-        "Mono Bold":                     "/usr/share/fonts/truetype/freefont/FreeMonoBold.ttf",
-        "DejaVu Sans":                   "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "DejaVu Sans Bold":              "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "Serif Regular (Arabic ✓)":     "/usr/share/fonts/truetype/freefont/FreeSerif.ttf",
+        "Serif Bold (Arabic ✓)":        "/usr/share/fonts/truetype/freefont/FreeSerifBold.ttf",
+        "Serif Italic (Arabic ✓)":      "/usr/share/fonts/truetype/freefont/FreeSerifItalic.ttf",
+        "Serif Bold Italic (Arabic ✓)": "/usr/share/fonts/truetype/freefont/FreeSerifBoldItalic.ttf",
+        "Sans Regular (Arabic ✓)":      "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+        "Sans Bold (Arabic ✓)":         "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+        "Sans Oblique (Arabic ✓)":      "/usr/share/fonts/truetype/freefont/FreeSansOblique.ttf",
+        "Sans Bold Oblique (Arabic ✓)": "/usr/share/fonts/truetype/freefont/FreeSansBoldOblique.ttf",
+        "Mono":                         "/usr/share/fonts/truetype/freefont/FreeMono.ttf",
+        "Mono Bold":                    "/usr/share/fonts/truetype/freefont/FreeMonoBold.ttf",
+        "DejaVu Sans":                  "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "DejaVu Sans Bold":             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     }
 
-    if f:
-        import base64
-        from PIL import ImageFont, ImageDraw
-        from reportlab.lib.utils import ImageReader
-        import streamlit.components.v1 as components
+    # ── Initialise session state ──────────────────────────────
+    for key, val in [
+        ("at_annotations", []),
+        ("at_pdf_bytes", None),
+        ("at_page", 1),
+        ("at_click_x", 10),
+        ("at_click_y", 10),
+    ]:
+        if key not in st.session_state:
+            st.session_state[key] = val
 
-        pdf_bytes = f.read()
+    # ── File upload ───────────────────────────────────────────
+    f = st.file_uploader("Upload PDF", type=["pdf"], key="at_uploader")
+    if f:
+        data = f.read()
+        if st.session_state.at_pdf_bytes != data:
+            st.session_state.at_pdf_bytes = data
+            st.session_state.at_annotations = []
+
+    if st.session_state.at_pdf_bytes:
+        pdf_bytes = st.session_state.at_pdf_bytes
         info = get_pdf_info(pdf_bytes)
 
-        # ── Controls row ──────────────────────────────────────
-        c1, c2, c3, c4 = st.columns([3, 2, 1, 1])
-        with c1:
-            annot_text = st.text_input("Text (Arabic, English, or mixed)", value="اكتب هنا · Type here")
-        with c2:
-            font_name = st.selectbox("Font", list(FONTS.keys()))
-            font_path = FONTS[font_name]
-        with c3:
-            font_size_a = st.number_input("Size (pt)", 6, 120, 18)
-            color_a = st.color_picker("Colour", "#1c1917")
-        with c4:
-            page_num = st.number_input("Page", 1, info["pages"], 1)
-            opacity_a = st.slider("Opacity", 0.1, 1.0, 1.0)
+        # ── Controls ──────────────────────────────────────────
+        st.markdown("#### ✍️ Text & Style")
+        col_t, col_f, col_s, col_c, col_p = st.columns([3,2,1,1,1])
+        with col_t:
+            annot_text = st.text_input("Text (Arabic / English / mixed)",
+                                        value="اكتب هنا · Type here", key="at_text")
+        with col_f:
+            font_name = st.selectbox("Font", list(FONTS.keys()), key="at_font")
+        with col_s:
+            font_size_a = st.number_input("Size pt", 6, 120, 18, key="at_size")
+        with col_c:
+            color_a = st.color_picker("Colour", "#1c1917", key="at_color")
+        with col_p:
+            page_num = st.number_input("Page", 1, info["pages"], 1, key="at_page_num")
+        font_path = FONTS[font_name]
 
         st.markdown("---")
-        st.markdown("#### 🖱 Click anywhere on the page to place your text")
-        st.caption("Click to drop — then queue the annotation and repeat for more text boxes.")
+        st.markdown("#### 📍 Click on the page to place your text")
+        st.caption("Click anywhere on the document below. The position is saved automatically — then click **Add to Document**.")
 
-        # ── Render PDF page as base64 for HTML canvas ─────────
+        # ── Render page as base64 ─────────────────────────────
+        import base64
+        import streamlit.components.v1 as components
+        from PIL import ImageFont, ImageDraw
+        from reportlab.lib.utils import ImageReader
+
         try:
-            preview_imgs = convert_from_bytes(pdf_bytes, dpi=130,
-                                               first_page=page_num, last_page=page_num)
-            preview_img = preview_imgs[0]
-            prev_w, prev_h = preview_img.size
-        except Exception as e:
-            st.error(f"Could not render page: {e}")
-            preview_img = None
-            prev_w, prev_h = 794, 1123
-
-        if preview_img:
-            # Convert page to base64
+            prev_imgs = convert_from_bytes(pdf_bytes, dpi=120,
+                                            first_page=int(page_num),
+                                            last_page=int(page_num))
+            prev_img = prev_imgs[0]
+            prev_w, prev_h = prev_img.size
             pg_buf = io.BytesIO()
-            preview_img.save(pg_buf, "PNG")
+            prev_img.save(pg_buf, "PNG")
             pg_b64 = base64.b64encode(pg_buf.getvalue()).decode()
+            page_ok = True
+        except Exception as e:
+            st.error(f"Page render error: {e}")
+            page_ok = False
 
-            # Pre-render the annotation text as base64 image for canvas overlay
+        if page_ok:
+            # Pre-render text preview as transparent PNG
             try:
-                font_pil = ImageFont.truetype(font_path, font_size_a * 3)
+                fp = ImageFont.truetype(font_path, font_size_a * 3)
                 dummy = Image.new("RGBA", (1,1))
-                bbox = ImageDraw.Draw(dummy).textbbox((0,0), annot_text, font=font_pil)
-                tw = max(1, bbox[2]-bbox[0]+20)
-                th = max(1, bbox[3]-bbox[1]+20)
-                txt_img = Image.new("RGBA", (tw, th), (255,255,255,0))
-                ch = color_a.lstrip("#")
-                cr,cg,cb = int(ch[0:2],16),int(ch[2:4],16),int(ch[4:6],16)
-                alpha = int(opacity_a * 255)
-                ImageDraw.Draw(txt_img).text((10,10), annot_text, font=font_pil,
-                                              fill=(cr,cg,cb,alpha))
-                txt_buf = io.BytesIO()
-                txt_img.save(txt_buf, "PNG")
-                txt_b64 = base64.b64encode(txt_buf.getvalue()).decode()
-                txt_scale = 1/3
-                txt_display_w = int(tw * txt_scale)
-                txt_display_h = int(th * txt_scale)
+                bb = ImageDraw.Draw(dummy).textbbox((0,0), annot_text, font=fp)
+                tw = max(1, bb[2]-bb[0]+20)
+                th = max(1, bb[3]-bb[1]+20)
+                ti = Image.new("RGBA", (tw, th), (255,255,255,0))
+                ch2 = color_a.lstrip("#")
+                cr2,cg2,cb2 = int(ch2[0:2],16),int(ch2[2:4],16),int(ch2[4:6],16)
+                ImageDraw.Draw(ti).text((10,10), annot_text, font=fp,
+                                         fill=(cr2,cg2,cb2,255))
+                tbuf = io.BytesIO(); ti.save(tbuf,"PNG"); tbuf.seek(0)
+                txt_b64 = base64.b64encode(tbuf.getvalue()).decode()
+                td_w = max(1, tw//3)
+                td_h = max(1, th//3)
             except Exception:
                 txt_b64 = ""
-                txt_display_w = 100
-                txt_display_h = 30
+                td_w, td_h = 120, 30
 
-            # ── HTML/JS interactive canvas ─────────────────────
-            canvas_html = f"""
-<!DOCTYPE html>
-<html>
-<head>
+            # Canvas height proportional to A4/letter
+            canvas_h = min(900, int(700 * prev_h / prev_w))
+
+            # The HTML canvas — click sends coords via query param trick
+            canvas_html = f"""<!DOCTYPE html><html><head>
 <style>
-  * {{ margin:0; padding:0; box-sizing:border-box; }}
-  body {{ background:#f7f3ee; font-family:'Jost',sans-serif; }}
-  #wrap {{
-    position:relative;
-    display:inline-block;
-    border:1px solid #d5ccc4;
-    cursor:crosshair;
-    background:#fff;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.08);
-  }}
-  #pageImg {{ display:block; max-width:100%; }}
-  #overlay {{
-    position:absolute; top:0; left:0;
-    width:100%; height:100%;
-    pointer-events:none;
-  }}
-  #cursor-guide {{
-    position:absolute; pointer-events:none;
-    border:1.5px dashed #8b5e52;
-    background:rgba(139,94,82,0.06);
-    padding:2px 6px;
-    font-size:11px; color:#8b5e52;
-    white-space:nowrap;
-    display:none;
-    border-radius:2px;
-  }}
-  #coords-display {{
-    margin-top:8px;
-    font-size:11px; color:#9a8e82;
-    font-family:'Jost',sans-serif;
-    letter-spacing:0.05em;
-  }}
-  #coords-display span {{ color:#1c1917; font-weight:500; }}
-  #confirm-btn {{
-    margin-top:10px;
-    background:#1c1917; color:#f7f3ee;
-    border:none; padding:8px 20px;
-    font-family:'Jost',sans-serif;
-    font-size:11px; font-weight:500;
-    letter-spacing:0.12em; text-transform:uppercase;
-    cursor:pointer; border-radius:2px;
-    display:none;
-  }}
-  #confirm-btn:hover {{ background:#3d3530; }}
-  .placed-marker {{
-    position:absolute;
-    border:1.5px solid #8b5e52;
-    background:rgba(139,94,82,0.1);
-    pointer-events:none;
-  }}
-</style>
-</head>
-<body>
+*{{margin:0;padding:0;box-sizing:border-box;}}
+body{{background:#f7f3ee;}}
+#wrap{{position:relative;display:inline-block;cursor:crosshair;
+       border:1px solid #d5ccc4;box-shadow:0 2px 16px rgba(0,0,0,0.1);
+       background:#fff;user-select:none;}}
+#pageImg{{display:block;width:100%;}}
+#cvs{{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;}}
+#tip{{position:absolute;background:rgba(28,25,23,0.82);color:#f7f3ee;
+      padding:3px 8px;font-size:10px;font-family:sans-serif;border-radius:2px;
+      pointer-events:none;display:none;white-space:nowrap;}}
+#info{{margin-top:6px;font-size:11px;color:#6b5f55;font-family:sans-serif;
+       min-height:18px;}}
+</style></head><body>
 <div id="wrap">
   <img id="pageImg" src="data:image/png;base64,{pg_b64}" draggable="false"/>
-  <canvas id="overlay"></canvas>
-  <div id="cursor-guide">📝 {annot_text[:25]}{'...' if len(annot_text)>25 else ''}</div>
+  <canvas id="cvs"></canvas>
+  <div id="tip">📝 {annot_text[:28]}{'...' if len(annot_text)>28 else ''}</div>
 </div>
-<div id="coords-display">Click on the page to place text &nbsp;·&nbsp; Position: <span id="pos-label">—</span></div>
-<button id="confirm-btn" onclick="confirmPlacement()">✓ Confirm placement</button>
-
+<div id="info">👆 Click anywhere on the page to set text position</div>
 <script>
-  const wrap = document.getElementById('wrap');
-  const img = document.getElementById('pageImg');
-  const canvas = document.getElementById('overlay');
-  const ctx = canvas.getContext('2d');
-  const guide = document.getElementById('cursor-guide');
-  const btn = document.getElementById('confirm-btn');
-  const posLabel = document.getElementById('pos-label');
+const wrap=document.getElementById('wrap');
+const img=document.getElementById('pageImg');
+const cvs=document.getElementById('cvs');
+const ctx=cvs.getContext('2d');
+const tip=document.getElementById('tip');
+const info=document.getElementById('info');
+const TXT_W={td_w}, TXT_H={td_h};
+const NAT_W={prev_w}, NAT_H={prev_h};
+const txtB64="{txt_b64}";
+let txtImg=new Image();
+if(txtB64){{txtImg.src='data:image/png;base64,'+txtB64;}}
+let placed=false, cx=0, cy=0;
 
-  const txtB64 = "{txt_b64}";
-  const txtW = {txt_display_w};
-  const txtH = {txt_display_h};
-  const imgNatW = {prev_w};
-  const imgNatH = {prev_h};
+function sync(){{
+  cvs.width=img.offsetWidth; cvs.height=img.offsetHeight;
+  cvs.style.width=img.offsetWidth+'px'; cvs.style.height=img.offsetHeight+'px';
+  if(placed) draw();
+}}
+img.onload=sync;
+window.addEventListener('resize',sync);
+setTimeout(sync,80);
 
-  let placed = false;
-  let clickX = 0, clickY = 0;
-  let txtImg = new Image();
-  if (txtB64) txtImg.src = 'data:image/png;base64,' + txtB64;
+wrap.addEventListener('mousemove',e=>{{
+  const r=wrap.getBoundingClientRect();
+  const mx=e.clientX-r.left, my=e.clientY-r.top;
+  tip.style.display='block';
+  tip.style.left=(mx+14)+'px';
+  tip.style.top=(my-22)+'px';
+}});
+wrap.addEventListener('mouseleave',()=>{{tip.style.display='none';}});
 
-  function syncCanvas() {{
-    canvas.width = img.offsetWidth;
-    canvas.height = img.offsetHeight;
-    canvas.style.width = img.offsetWidth + 'px';
-    canvas.style.height = img.offsetHeight + 'px';
-  }}
+wrap.addEventListener('click',e=>{{
+  const r=wrap.getBoundingClientRect();
+  cx=e.clientX-r.left; cy=e.clientY-r.top;
+  placed=true; draw();
+  const pctX=Math.round(cx/img.offsetWidth*100);
+  const pctY=Math.round(cy/img.offsetHeight*100);
+  info.innerHTML='<b style="color:#1c1917">✓ Position set: '+pctX+'% across, '+pctY+'% down</b> — now click <b>Add to Document</b> below';
+  // Send to Streamlit
+  window.parent.postMessage({{
+    isStreamlitMessage:true,
+    type:'streamlit:setComponentValue',
+    value: pctX+','+pctY
+  }},'*');
+}});
 
-  img.onload = syncCanvas;
-  window.addEventListener('resize', () => {{ syncCanvas(); if(placed) drawPlaced(); }});
-  setTimeout(syncCanvas, 100);
-
-  wrap.addEventListener('mousemove', (e) => {{
-    const r = wrap.getBoundingClientRect();
-    const mx = e.clientX - r.left;
-    const my = e.clientY - r.top;
-    guide.style.display = 'block';
-    guide.style.left = (mx + 12) + 'px';
-    guide.style.top = (my - 18) + 'px';
-  }});
-
-  wrap.addEventListener('mouseleave', () => {{
-    guide.style.display = 'none';
-  }});
-
-  wrap.addEventListener('click', (e) => {{
-    const r = wrap.getBoundingClientRect();
-    clickX = e.clientX - r.left;
-    clickY = e.clientY - r.top;
-    placed = true;
-    drawPlaced();
-    const scaleX = imgNatW / img.offsetWidth;
-    const scaleY = imgNatH / img.offsetHeight;
-    const pdfX = Math.round(clickX * scaleX);
-    const pdfY = Math.round(clickY * scaleY);
-    const pctX = Math.round(clickX / img.offsetWidth * 100);
-    const pctY = Math.round(clickY / img.offsetHeight * 100);
-    posLabel.textContent = pctX + '% across, ' + pctY + '% down';
-    btn.style.display = 'inline-block';
-    btn.dataset.pctx = pctX;
-    btn.dataset.pcty = pctY;
-  }});
-
-  function drawPlaced() {{
-    syncCanvas();
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-    // Draw crosshair
-    ctx.strokeStyle = '#8b5e52';
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([4,3]);
-    ctx.beginPath();
-    ctx.moveTo(clickX-14,clickY); ctx.lineTo(clickX+14,clickY);
-    ctx.moveTo(clickX,clickY-14); ctx.lineTo(clickX,clickY+14);
-    ctx.stroke();
+function draw(){{
+  sync();
+  ctx.clearRect(0,0,cvs.width,cvs.height);
+  // Crosshair
+  ctx.strokeStyle='#8b5e52'; ctx.lineWidth=1.5; ctx.setLineDash([5,3]);
+  ctx.beginPath();
+  ctx.moveTo(cx-16,cy); ctx.lineTo(cx+16,cy);
+  ctx.moveTo(cx,cy-16); ctx.lineTo(cx,cy+16);
+  ctx.stroke(); ctx.setLineDash([]);
+  // Text preview image
+  if(txtB64&&txtImg.complete&&txtImg.naturalWidth>0){{
+    ctx.globalAlpha=0.9;
+    ctx.drawImage(txtImg,cx,cy-TXT_H/2,TXT_W,TXT_H);
+    ctx.globalAlpha=1;
+    ctx.strokeStyle='#8b5e52'; ctx.lineWidth=1; ctx.setLineDash([3,2]);
+    ctx.strokeRect(cx-1,cy-TXT_H/2-1,TXT_W+2,TXT_H+2);
     ctx.setLineDash([]);
-    // Draw text image preview
-    if (txtB64 && txtImg.complete) {{
-      ctx.globalAlpha = 0.85;
-      ctx.drawImage(txtImg, clickX, clickY - txtH/2, txtW, txtH);
-      ctx.globalAlpha = 1.0;
-      // Dashed border around it
-      ctx.strokeStyle = '#8b5e52';
-      ctx.lineWidth = 1;
-      ctx.setLineDash([3,2]);
-      ctx.strokeRect(clickX-1, clickY-txtH/2-1, txtW+2, txtH+2);
-      ctx.setLineDash([]);
-    }}
   }}
-
-  function confirmPlacement() {{
-    const pctX = btn.dataset.pctx;
-    const pctY = btn.dataset.pcty;
-    // Send to Streamlit via URL hash trick
-    const data = JSON.stringify({{x: parseInt(pctX), y: parseInt(pctY)}});
-    window.parent.postMessage({{type:'streamlit:setComponentValue', value: data}}, '*');
-  }}
+}}
 </script>
-</body>
-</html>
-"""
-            # Render the canvas and capture click coordinates
-            click_result = components.html(canvas_html, height=prev_h * 700 // prev_w + 80, scrolling=False)
+</body></html>"""
 
-            # ── Queue system ──────────────────────────────────
+            # Render canvas — capture returned value as click coords
+            click_val = components.html(canvas_html, height=canvas_h + 40, scrolling=False)
+
+            # ── Position inputs (editable, also updated by click) ─
             st.markdown("---")
+            st.markdown("##### Position")
+            pc1, pc2 = st.columns(2)
+            with pc1:
+                x_pct = st.number_input("X — horizontal (%)", 0, 99,
+                                         st.session_state.at_click_x,
+                                         help="0 = left edge, 100 = right edge",
+                                         key="at_xpct")
+            with pc2:
+                y_pct = st.number_input("Y — vertical (%)", 0, 99,
+                                         st.session_state.at_click_y,
+                                         help="0 = top, 100 = bottom",
+                                         key="at_ypct")
 
-            if "annotations" not in st.session_state:
-                st.session_state.annotations = []
-            if "pending_x" not in st.session_state:
-                st.session_state.pending_x = 10
-            if "pending_y" not in st.session_state:
-                st.session_state.pending_y = 10
+            # ── Add annotation button ─────────────────────────────
+            if st.button("＋ Add to Document", use_container_width=True, key="at_add_btn"):
+                st.session_state.at_annotations.append({
+                    "text":    annot_text,
+                    "font":    font_path,
+                    "fname":   font_name,
+                    "size":    int(font_size_a),
+                    "color":   color_a,
+                    "opacity": 1.0,
+                    "page":    int(page_num),
+                    "x_pct":  x_pct,
+                    "y_pct":  y_pct,
+                })
+                st.success(f"Added — page {page_num}, position ({x_pct}%, {y_pct}%)")
 
-            cola, colb = st.columns([2,1])
-            with cola:
-                st.caption("After clicking on the page above, use the coordinate inputs below and click **Queue Annotation**.")
-                px_col, py_col = st.columns(2)
-                with px_col:
-                    x_pct = st.number_input("X position (%)", 0, 99,
-                                             st.session_state.pending_x, key="xnum")
-                with py_col:
-                    y_pct = st.number_input("Y position (%)", 0, 99,
-                                             st.session_state.pending_y, key="ynum")
-            with colb:
-                st.write("")
-                st.write("")
-                if st.button("＋ Queue Annotation", use_container_width=True):
-                    st.session_state.annotations.append({
-                        "text": annot_text, "font": font_path,
-                        "size": font_size_a, "color": color_a,
-                        "opacity": opacity_a, "page": int(page_num),
-                        "x_pct": x_pct, "y_pct": y_pct,
-                    })
-                    st.success(f"Queued annotation on page {page_num} at ({x_pct}%, {y_pct}%)")
+            # ── Queued annotations ────────────────────────────────
+            anns = st.session_state.at_annotations
+            if anns:
+                st.markdown(f"---")
+                st.markdown(f"**{len(anns)} text annotation(s) ready to apply:**")
+                for i, ann in enumerate(anns):
+                    col_ann, col_del = st.columns([5,1])
+                    with col_ann:
+                        st.markdown(
+                            f'<div class="result-card">'
+                            f'<div class="fname">"{ann["text"][:60]}"</div>'
+                            f'<div class="fmeta">'
+                            f'Page {ann["page"]} &nbsp;·&nbsp; {ann["fname"]} &nbsp;·&nbsp; '
+                            f'{ann["size"]}pt &nbsp;·&nbsp; '
+                            f'({ann["x_pct"]}%, {ann["y_pct"]}%)'
+                            f'</div></div>',
+                            unsafe_allow_html=True)
+                    with col_del:
+                        if st.button("✕", key=f"at_del_{i}", help="Remove"):
+                            st.session_state.at_annotations.pop(i)
+                            st.rerun()
 
-            if st.session_state.annotations:
-                st.markdown(f"**{len(st.session_state.annotations)} annotation(s) queued:**")
-                for ann in st.session_state.annotations:
-                    fname = [k for k,v in FONTS.items() if v==ann['font']]
-                    fname = fname[0] if fname else ann['font']
-                    st.markdown(
-                        f'<div class="result-card">'
-                        f'<div class="fname">"{ann["text"][:50]}"</div>'
-                        f'<div class="fmeta">Page {ann["page"]} &nbsp;·&nbsp; {fname} &nbsp;·&nbsp; '
-                        f'{ann["size"]}pt &nbsp;·&nbsp; ({ann["x_pct"]}%, {ann["y_pct"]}%)</div>'
-                        f'</div>', unsafe_allow_html=True)
-
-                clapply, clclear = st.columns(2)
-                with clclear:
-                    if st.button("🗑 Clear all", use_container_width=True):
-                        st.session_state.annotations = []
+                bapply, bclear = st.columns(2)
+                with bclear:
+                    if st.button("🗑 Clear all", use_container_width=True, key="at_clear"):
+                        st.session_state.at_annotations = []
                         st.rerun()
-                with clapply:
-                    if st.button("✓ Apply All to PDF", use_container_width=True):
-                        with st.spinner("Applying…"):
+                with bapply:
+                    if st.button("✓ Apply & Download PDF", use_container_width=True,
+                                  key="at_apply"):
+                        with st.spinner("Embedding text into PDF…"):
                             try:
+                                from reportlab.lib.utils import ImageReader
                                 result_bytes = pdf_bytes
-                                for ann in st.session_state.annotations:
-                                    font_pil = ImageFont.truetype(ann["font"], ann["size"] * 3)
+                                for ann in st.session_state.at_annotations:
+                                    fp2 = ImageFont.truetype(ann["font"], ann["size"]*3)
                                     dummy2 = Image.new("RGBA",(1,1))
-                                    bbox2 = ImageDraw.Draw(dummy2).textbbox((0,0), ann["text"], font=font_pil)
-                                    tw2 = max(1, bbox2[2]-bbox2[0]+20)
-                                    th2 = max(1, bbox2[3]-bbox2[1]+20)
-                                    txt2 = Image.new("RGBA",(tw2,th2),(255,255,255,0))
-                                    ch2 = ann["color"].lstrip("#")
-                                    cr2,cg2,cb2 = int(ch2[0:2],16),int(ch2[2:4],16),int(ch2[4:6],16)
-                                    ImageDraw.Draw(txt2).text((10,10), ann["text"], font=font_pil,
-                                                               fill=(cr2,cg2,cb2,int(ann["opacity"]*255)))
-                                    # PDF coords
-                                    r_tmp = PdfReader(io.BytesIO(result_bytes))
-                                    pg_tmp = r_tmp.pages[ann["page"]-1]
-                                    pdf_w2 = float(pg_tmp.mediabox.width)
-                                    pdf_h2 = float(pg_tmp.mediabox.height)
-                                    x_pdf = (ann["x_pct"]/100) * pdf_w2
-                                    # PDF y origin is bottom-left; canvas y is top-left
-                                    y_pdf = pdf_h2 - (ann["y_pct"]/100) * pdf_h2 - (th2/3)
-                                    ibuf2 = io.BytesIO(); txt2.save(ibuf2,"PNG"); ibuf2.seek(0)
-                                    ov_buf = io.BytesIO()
-                                    oc2 = rl_canvas.Canvas(ov_buf, pagesize=(pdf_w2,pdf_h2))
-                                    oc2.drawImage(ImageReader(ibuf2), x_pdf, y_pdf,
+                                    bb2 = ImageDraw.Draw(dummy2).textbbox((0,0), ann["text"], font=fp2)
+                                    tw2 = max(1, bb2[2]-bb2[0]+20)
+                                    th2 = max(1, bb2[3]-bb2[1]+20)
+                                    ti2 = Image.new("RGBA",(tw2,th2),(255,255,255,0))
+                                    ch3 = ann["color"].lstrip("#")
+                                    cr3,cg3,cb3 = int(ch3[0:2],16),int(ch3[2:4],16),int(ch3[4:6],16)
+                                    ImageDraw.Draw(ti2).text((10,10), ann["text"], font=fp2,
+                                                              fill=(cr3,cg3,cb3,255))
+                                    r_t = PdfReader(io.BytesIO(result_bytes))
+                                    pg_t = r_t.pages[ann["page"]-1]
+                                    pdf_w3 = float(pg_t.mediabox.width)
+                                    pdf_h3 = float(pg_t.mediabox.height)
+                                    x3 = (ann["x_pct"]/100)*pdf_w3
+                                    y3 = pdf_h3 - (ann["y_pct"]/100)*pdf_h3 - (th2/3)
+                                    ib3 = io.BytesIO(); ti2.save(ib3,"PNG"); ib3.seek(0)
+                                    ob3 = io.BytesIO()
+                                    oc3 = rl_canvas.Canvas(ob3, pagesize=(pdf_w3,pdf_h3))
+                                    oc3.drawImage(ImageReader(ib3), x3, y3,
                                                    width=tw2/3, height=th2/3, mask="auto")
-                                    oc2.save()
-                                    ov_pg = PdfReader(io.BytesIO(ov_buf.getvalue())).pages[0]
-                                    r2 = PdfReader(io.BytesIO(result_bytes))
-                                    w2 = PdfWriter()
-                                    for ii, pg2 in enumerate(r2.pages):
-                                        if ii == ann["page"]-1:
-                                            pg2.merge_page(ov_pg)
-                                        w2.add_page(pg2)
-                                    ob2 = io.BytesIO(); w2.write(ob2)
-                                    result_bytes = ob2.getvalue()
+                                    oc3.save()
+                                    ov3 = PdfReader(io.BytesIO(ob3.getvalue())).pages[0]
+                                    rd3 = PdfReader(io.BytesIO(result_bytes))
+                                    wt3 = PdfWriter()
+                                    for ii3, pg3 in enumerate(rd3.pages):
+                                        if ii3 == ann["page"]-1:
+                                            pg3.merge_page(ov3)
+                                        wt3.add_page(pg3)
+                                    ob4 = io.BytesIO(); wt3.write(ob4)
+                                    result_bytes = ob4.getvalue()
 
-                                st.success(f"✅ {len(st.session_state.annotations)} annotation(s) applied!")
-                                out_name = os.path.splitext(f.name)[0] + "_annotated.pdf"
-                                st.download_button("⬇ Download Annotated PDF",
-                                    result_bytes, out_name, "application/pdf", key="dl_annot")
-                                st.session_state.annotations = []
+                                st.success(f"✅ {len(st.session_state.at_annotations)} annotation(s) embedded!")
+                                if f:
+                                    out_name = os.path.splitext(f.name)[0] + "_annotated.pdf"
+                                else:
+                                    out_name = "annotated.pdf"
+                                st.download_button("⬇ Download PDF",
+                                    result_bytes, out_name, "application/pdf",
+                                    key="at_download")
+                                st.session_state.at_annotations = []
                             except Exception as e:
                                 st.error(f"❌ {e}")
 
