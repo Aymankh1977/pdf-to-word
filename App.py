@@ -454,6 +454,9 @@ TOOLS = [
     ("✍️",  "Add Text",         "Annotate pages"),
     ("⬛", "Redact",           "Black-out content"),
     ("📋", "Reorder Pages",    "Drag pages into order"),
+    ("🖼️→📄", "Images → PDF",  "Convert images to PDF"),
+    ("📄→📄", "Word → PDF",    "Convert Word docs to PDF"),
+    ("📊→📄", "Excel → PDF",   "Convert spreadsheets to PDF"),
 ]
 
 # Sidebar tool selector
@@ -1055,3 +1058,193 @@ elif selected_tool == "Reorder Pages":
                     st.download_button("⬇ Download", result, out_name, "application/pdf")
                 except Exception as e:
                     st.error(f"❌ {e}")
+
+# ── Images → PDF ──────────────────────────────────────────────────
+elif selected_tool == "Images → PDF":
+    st.markdown("Convert JPG, PNG, WEBP, BMP or TIFF images into a single PDF.")
+    files = st.file_uploader(
+        "Upload images (they will appear in the PDF in the order uploaded)",
+        type=["jpg","jpeg","png","webp","bmp","tiff","tif"],
+        accept_multiple_files=True, key="img2pdf_files"
+    )
+    if files:
+        col1, col2 = st.columns(2)
+        with col1:
+            page_size = st.selectbox("Page size", ["A4","Letter","Fit to image"], key="img2pdf_size")
+            orientation = st.selectbox("Orientation", ["Portrait","Landscape"], key="img2pdf_orient")
+        with col2:
+            margin_mm = st.slider("Margin (mm)", 0, 40, 10, key="img2pdf_margin")
+            out_name_img = st.text_input("Output filename", value="images.pdf", key="img2pdf_name")
+
+        # Show thumbnails
+        st.markdown(f"**{len(files)} image(s) selected:**")
+        thumb_cols = st.columns(min(6, len(files)))
+        for i, imgf in enumerate(files[:6]):
+            with thumb_cols[i]:
+                st.image(imgf, use_column_width=True)
+                st.caption(imgf.name[:16])
+
+        if st.button("Convert to PDF", key="img2pdf_btn", use_container_width=True):
+            with st.spinner(f"Converting {len(files)} image(s)…"):
+                try:
+                    from PIL import Image as PILImage
+                    from reportlab.lib.pagesizes import A4, letter
+                    from reportlab.lib.utils import ImageReader
+
+                    PAGE_SIZES = {"A4": A4, "Letter": letter}
+                    margin_pt = margin_mm * 2.835  # mm to points
+
+                    pil_images = []
+                    for imgf in files:
+                        img = PILImage.open(imgf).convert("RGB")
+                        pil_images.append(img)
+
+                    if page_size == "Fit to image":
+                        # Each page fits its image
+                        first_w, first_h = pil_images[0].size
+                        ps = (first_w, first_h)
+                    else:
+                        ps = PAGE_SIZES.get(page_size, A4)
+                        if orientation == "Landscape":
+                            ps = (ps[1], ps[0])
+
+                    out_buf = io.BytesIO()
+                    c = rl_canvas.Canvas(out_buf, pagesize=ps)
+
+                    for idx, img in enumerate(pil_images):
+                        if page_size == "Fit to image":
+                            iw, ih = img.size
+                            c.setPageSize((iw, ih))
+                            avail_w, avail_h = iw - margin_pt*2, ih - margin_pt*2
+                        else:
+                            avail_w = ps[0] - margin_pt*2
+                            avail_h = ps[1] - margin_pt*2
+
+                        iw, ih = img.size
+                        scale = min(avail_w/iw, avail_h/ih)
+                        draw_w, draw_h = iw*scale, ih*scale
+                        x = margin_pt + (avail_w - draw_w)/2
+                        y = margin_pt + (avail_h - draw_h)/2
+
+                        img_buf = io.BytesIO()
+                        img.save(img_buf, "PNG")
+                        img_buf.seek(0)
+                        c.drawImage(ImageReader(img_buf), x, y, width=draw_w, height=draw_h)
+                        c.showPage()
+
+                    c.save()
+                    pdf_data = out_buf.getvalue()
+                    st.success(f"✅ {len(pil_images)} images → {len(pil_images)}-page PDF")
+                    st.download_button("⬇ Download PDF", pdf_data,
+                                        out_name_img, "application/pdf", key="img2pdf_dl")
+                except Exception as e:
+                    st.error(f"❌ {e}")
+
+# ── Word → PDF ────────────────────────────────────────────────────
+elif selected_tool == "Word → PDF":
+    st.markdown("Convert `.docx` Word documents to PDF using LibreOffice.")
+    files = st.file_uploader("Upload Word documents (.docx)",
+                              type=["docx"], accept_multiple_files=True, key="word2pdf_files")
+    if files:
+        as_zip_w = st.checkbox("Download all as ZIP", value=len(files)>1, key="word2pdf_zip")
+        if st.button("Convert to PDF", use_container_width=True, key="word2pdf_btn"):
+            import tempfile, subprocess
+            results = []
+            bar = st.progress(0)
+            for idx, f in enumerate(files):
+                with st.spinner(f"Converting {f.name}…"):
+                    try:
+                        with tempfile.TemporaryDirectory() as tmp:
+                            in_path = os.path.join(tmp, f.name)
+                            with open(in_path, "wb") as fout:
+                                fout.write(f.read())
+                            r = subprocess.run(
+                                ["libreoffice","--headless","--convert-to","pdf",
+                                 "--outdir", tmp, in_path],
+                                capture_output=True, text=True, timeout=60
+                            )
+                            pdf_path = in_path.replace(".docx",".pdf")
+                            if os.path.exists(pdf_path):
+                                with open(pdf_path,"rb") as pf:
+                                    pdf_data = pf.read()
+                                out_n = os.path.splitext(f.name)[0]+".pdf"
+                                results.append({"name":f.name,"out":out_n,"bytes":pdf_data,"ok":True})
+                            else:
+                                results.append({"name":f.name,"error":r.stderr[:200],"ok":False})
+                    except Exception as e:
+                        results.append({"name":f.name,"error":str(e),"ok":False})
+                bar.progress((idx+1)/len(files))
+            bar.empty()
+
+            if as_zip_w and any(r["ok"] for r in results):
+                zb = io.BytesIO()
+                with zipfile.ZipFile(zb,"w",zipfile.ZIP_DEFLATED) as zf:
+                    for r in results:
+                        if r["ok"]: zf.writestr(r["out"], r["bytes"])
+                st.download_button("⬇ Download ZIP", zb.getvalue(),
+                                    "converted.zip", "application/zip", key="word2pdf_zip_dl")
+            for r in results:
+                status = "✓ Converted" if r["ok"] else f"✗ {r.get('error','')}"
+                color = "#6b8b5e" if r["ok"] else "#8b5e5e"
+                st.markdown(
+                    f'<div class="result-card"><div class="fname">📄 {r["name"]}</div>'
+                    f'<div class="fmeta" style="color:{color}">{status}</div></div>',
+                    unsafe_allow_html=True)
+                if r["ok"]:
+                    st.download_button(f"⬇ Download {r['out']}", r["bytes"], r["out"],
+                                        "application/pdf", key=f"w2p_{r['out']}")
+
+# ── Excel → PDF ───────────────────────────────────────────────────
+elif selected_tool == "Excel → PDF":
+    st.markdown("Convert `.xlsx` Excel spreadsheets to PDF using LibreOffice.")
+    files = st.file_uploader("Upload Excel files (.xlsx)",
+                              type=["xlsx","xls"], accept_multiple_files=True, key="xl2pdf_files")
+    if files:
+        as_zip_x = st.checkbox("Download all as ZIP", value=len(files)>1, key="xl2pdf_zip")
+        if st.button("Convert to PDF", use_container_width=True, key="xl2pdf_btn"):
+            import tempfile, subprocess
+            results = []
+            bar2 = st.progress(0)
+            for idx, f in enumerate(files):
+                with st.spinner(f"Converting {f.name}…"):
+                    try:
+                        with tempfile.TemporaryDirectory() as tmp:
+                            in_path = os.path.join(tmp, f.name)
+                            with open(in_path,"wb") as fout:
+                                fout.write(f.read())
+                            r = subprocess.run(
+                                ["libreoffice","--headless","--convert-to","pdf",
+                                 "--outdir", tmp, in_path],
+                                capture_output=True, text=True, timeout=60
+                            )
+                            ext = os.path.splitext(f.name)[1]
+                            pdf_path = in_path.replace(ext, ".pdf")
+                            if os.path.exists(pdf_path):
+                                with open(pdf_path,"rb") as pf:
+                                    pdf_data = pf.read()
+                                out_n = os.path.splitext(f.name)[0]+".pdf"
+                                results.append({"name":f.name,"out":out_n,"bytes":pdf_data,"ok":True})
+                            else:
+                                results.append({"name":f.name,"error":r.stderr[:200],"ok":False})
+                    except Exception as e:
+                        results.append({"name":f.name,"error":str(e),"ok":False})
+                bar2.progress((idx+1)/len(files))
+            bar2.empty()
+
+            if as_zip_x and any(r["ok"] for r in results):
+                zb2 = io.BytesIO()
+                with zipfile.ZipFile(zb2,"w",zipfile.ZIP_DEFLATED) as zf2:
+                    for r in results:
+                        if r["ok"]: zf2.writestr(r["out"], r["bytes"])
+                st.download_button("⬇ Download ZIP", zb2.getvalue(),
+                                    "converted_xl.zip", "application/zip", key="xl2pdf_zip_dl")
+            for r in results:
+                status = "✓ Converted" if r["ok"] else f"✗ {r.get('error','')}"
+                color = "#6b8b5e" if r["ok"] else "#8b5e5e"
+                st.markdown(
+                    f'<div class="result-card"><div class="fname">📊 {r["name"]}</div>'
+                    f'<div class="fmeta" style="color:{color}">{status}</div></div>',
+                    unsafe_allow_html=True)
+                if r["ok"]:
+                    st.download_button(f"⬇ Download {r['out']}", r["bytes"], r["out"],
+                                        "application/pdf", key=f"x2p_{r['out']}")
