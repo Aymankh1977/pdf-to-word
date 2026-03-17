@@ -29,106 +29,99 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=Jost:wght@300;400;500;600&display=swap');
 
-/* Base */
 html, body, [class*="css"] { font-family: 'Jost', sans-serif !important; }
 .stApp { background-color: #f7f3ee !important; }
 
-/* ── SIDEBAR — catch-all approach ── */
-[data-testid="stSidebar"] { background-color: #1c1917 !important; }
-[data-testid="stSidebar"] > div { background-color: #1c1917 !important; }
-[data-testid="stSidebar"] > div > div { background-color: #1c1917 !important; }
-[data-testid="stSidebarContent"] { background-color: #1c1917 !important; }
-
-/* Sidebar text */
-[data-testid="stSidebar"] p,
-[data-testid="stSidebar"] span,
-[data-testid="stSidebar"] label { color: #e8e0d5 !important; }
-
-/* Sidebar radio */
-[data-testid="stSidebar"] .stRadio label {
-    color: #a89880 !important;
-    font-size: 0.82rem !important;
-    font-weight: 400 !important;
-    letter-spacing: 0.06em !important;
-    padding: 6px 0 !important;
-    border-bottom: 1px solid #2e2925 !important;
-    display: block !important;
-}
-[data-testid="stSidebar"] .stRadio label:hover { color: #f0ede8 !important; }
-
-/* Sidebar custom HTML */
-.sidebar-logo {
-    font-family: 'Cormorant Garamond', serif !important;
-    font-size: 1.6rem; font-weight: 300; color: #e8e0d5;
-    padding: 0.8rem 0 0.8rem; border-bottom: 1px solid #2e2925;
-    margin-bottom: 0.8rem; letter-spacing: 0.04em;
-}
-.sidebar-logo em { font-style: italic; color: #c4967a; }
-.sidebar-section {
-    font-size: 0.6rem; letter-spacing: 0.22em; text-transform: uppercase;
-    color: #5a4e44; margin: 0.8rem 0 0.4rem; font-weight: 600; display: block;
-}
-
 /* ── Hero ── */
-.hero { text-align: center; padding: 2.5rem 1rem 2rem; border-bottom: 1px solid #e2d9ce; margin-bottom: 2rem; }
-.hero-eyebrow { font-size: 0.68rem; font-weight: 500; letter-spacing: 0.28em; text-transform: uppercase; color: #a89880; margin-bottom: 0.7rem; }
-.hero h1 { font-family: 'Cormorant Garamond', serif !important; font-size: 3.2rem !important; font-weight: 300 !important; color: #1c1917 !important; letter-spacing: -0.02em !important; margin-bottom: 0.5rem !important; }
-.hero h1 em { font-style: italic; color: #8b5e52; }
-.hero-sub { font-size: 0.78rem; color: #9a8e82; font-weight: 300; letter-spacing: 0.06em; }
+.hero { text-align:center; padding:2.5rem 1rem 1.5rem; border-bottom:1px solid #e2d9ce; margin-bottom:0; }
+.hero-eyebrow { font-size:0.65rem; font-weight:500; letter-spacing:0.28em; text-transform:uppercase; color:#a89880; margin-bottom:0.6rem; }
+.hero h1 { font-family:'Cormorant Garamond',serif !important; font-size:3rem !important; font-weight:300 !important; color:#1c1917 !important; letter-spacing:-0.02em !important; margin-bottom:0.4rem !important; }
+.hero h1 em { font-style:italic; color:#8b5e52; }
+.hero-sub { font-size:0.76rem; color:#9a8e82; font-weight:300; letter-spacing:0.06em; }
+
+/* ── Navigation bar ── */
+.nav-bar {
+    display:flex; gap:0; border-bottom:2px solid #e2d9ce;
+    margin-bottom:2rem; background:#fff;
+    box-shadow:0 2px 12px rgba(28,25,23,0.06);
+    flex-wrap:wrap;
+}
+.nav-group {
+    display:flex; flex-direction:column;
+    border-right:1px solid #f0ebe5; flex:1; min-width:180px;
+}
+.nav-group-label {
+    font-size:0.58rem; font-weight:600; letter-spacing:0.22em;
+    text-transform:uppercase; color:#a89880;
+    padding:8px 16px 4px; background:#fdf8f5;
+    border-bottom:1px solid #f0ebe5;
+}
+.nav-items { display:flex; flex-wrap:wrap; padding:6px 8px; gap:4px; }
+.nav-btn {
+    background:transparent; border:1px solid transparent;
+    border-radius:4px; padding:6px 10px; cursor:pointer;
+    font-family:'Jost',sans-serif; font-size:0.75rem;
+    font-weight:400; color:#6b5f55; letter-spacing:0.03em;
+    transition:all 0.15s; white-space:nowrap;
+    display:flex; align-items:center; gap:5px;
+}
+.nav-btn:hover { background:#f5ede8; color:#1c1917; border-color:#ddd0c8; }
+.nav-btn.active {
+    background:#1c1917; color:#f7f3ee !important;
+    border-color:#1c1917; font-weight:500;
+}
+.nav-btn span { font-size:0.73rem; }
 
 /* ── Tool heading ── */
-.tool-heading { display: flex; align-items: baseline; gap: 0.8rem; flex-wrap: wrap; margin-bottom: 1.8rem; padding-bottom: 1rem; border-bottom: 1px solid #e2d9ce; }
-.tool-heading h2 { font-family: 'Cormorant Garamond', serif !important; font-size: 1.9rem !important; font-weight: 400 !important; color: #1c1917 !important; margin: 0 !important; }
-.tool-heading .tool-tag { font-size: 0.65rem; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: #a89880; background: #ede6dc; padding: 3px 10px; border-radius: 20px; }
+.tool-heading { display:flex; align-items:baseline; gap:0.8rem; flex-wrap:wrap; margin-bottom:1.8rem; padding-bottom:1rem; border-bottom:1px solid #e2d9ce; }
+.tool-heading h2 { font-family:'Cormorant Garamond',serif !important; font-size:1.9rem !important; font-weight:400 !important; color:#1c1917 !important; margin:0 !important; }
+.tool-heading .tool-tag { font-size:0.65rem; font-weight:500; letter-spacing:0.14em; text-transform:uppercase; color:#a89880; background:#ede6dc; padding:3px 10px; border-radius:20px; }
 
 /* ── File uploader ── */
-[data-testid="stFileUploader"] { background: #fff !important; border: 1px solid #d5ccc4 !important; border-radius: 3px !important; }
+[data-testid="stFileUploader"] { background:#fff !important; border:1px solid #d5ccc4 !important; border-radius:3px !important; }
 
 /* ── Buttons ── */
 .stButton > button {
-    background: #1c1917 !important; color: #f7f3ee !important; border: none !important;
-    border-radius: 2px !important; font-family: 'Jost', sans-serif !important;
-    font-weight: 500 !important; font-size: 0.72rem !important;
-    letter-spacing: 0.14em !important; text-transform: uppercase !important;
-    padding: 0.65rem 2rem !important;
+    background:#1c1917 !important; color:#f7f3ee !important; border:none !important;
+    border-radius:2px !important; font-family:'Jost',sans-serif !important;
+    font-weight:500 !important; font-size:0.72rem !important;
+    letter-spacing:0.14em !important; text-transform:uppercase !important;
+    padding:0.65rem 2rem !important; transition:background 0.2s !important;
 }
-.stButton > button:hover { background: #3d3530 !important; }
-
+.stButton > button:hover { background:#3d3530 !important; }
 [data-testid="stDownloadButton"] > button {
-    background: transparent !important; color: #1c1917 !important;
-    border: 1.5px solid #1c1917 !important; border-radius: 2px !important;
-    font-family: 'Jost', sans-serif !important; font-weight: 500 !important;
-    font-size: 0.72rem !important; letter-spacing: 0.14em !important;
-    text-transform: uppercase !important; width: 100% !important;
+    background:transparent !important; color:#1c1917 !important;
+    border:1.5px solid #1c1917 !important; border-radius:2px !important;
+    font-family:'Jost',sans-serif !important; font-weight:500 !important;
+    font-size:0.72rem !important; letter-spacing:0.14em !important;
+    text-transform:uppercase !important; width:100% !important; transition:all 0.2s !important;
 }
-[data-testid="stDownloadButton"] > button:hover { background: #1c1917 !important; color: #f7f3ee !important; }
+[data-testid="stDownloadButton"] > button:hover { background:#1c1917 !important; color:#f7f3ee !important; }
 
 /* ── Alerts ── */
-[data-testid="stInfo"]    { background: #ede6dc !important; border: none !important; border-left: 3px solid #a89880 !important; border-radius: 0 !important; }
-[data-testid="stSuccess"] { background: #e8ede6 !important; border: none !important; border-left: 3px solid #6b8b5e !important; border-radius: 0 !important; }
-[data-testid="stError"]   { background: #f0e6e6 !important; border: none !important; border-left: 3px solid #8b5e5e !important; border-radius: 0 !important; }
+[data-testid="stInfo"]    { background:#ede6dc !important; border:none !important; border-left:3px solid #a89880 !important; border-radius:0 !important; }
+[data-testid="stSuccess"] { background:#e8ede6 !important; border:none !important; border-left:3px solid #6b8b5e !important; border-radius:0 !important; }
+[data-testid="stError"]   { background:#f0e6e6 !important; border:none !important; border-left:3px solid #8b5e5e !important; border-radius:0 !important; }
 
 /* ── Result card ── */
-.result-card { background: #fff; border: 1px solid #e2d9ce; border-left: 3px solid #8b5e52; padding: 1rem 1.4rem; margin-bottom: 0.6rem; border-radius: 0 2px 2px 0; }
-.result-card .fname { font-weight: 500; font-size: 0.88rem; color: #1c1917; margin-bottom: 3px; }
-.result-card .fmeta { font-size: 0.76rem; color: #9a8e82; }
+.result-card { background:#fff; border:1px solid #e2d9ce; border-left:3px solid #8b5e52; padding:1rem 1.4rem; margin-bottom:0.6rem; border-radius:0 2px 2px 0; }
+.result-card .fname { font-weight:500; font-size:0.88rem; color:#1c1917; margin-bottom:3px; }
+.result-card .fmeta { font-size:0.76rem; color:#9a8e82; }
 
 /* ── Inputs ── */
 .stTextInput input, .stNumberInput input, .stTextArea textarea {
-    background: #fff !important; border: 1px solid #d5ccc4 !important;
-    border-radius: 2px !important; color: #1c1917 !important;
-    font-family: 'Jost', sans-serif !important;
+    background:#fff !important; border:1px solid #d5ccc4 !important;
+    border-radius:2px !important; color:#1c1917 !important; font-family:'Jost',sans-serif !important;
 }
-.stTextInput input:focus, .stNumberInput input:focus { border-color: #8b5e52 !important; }
-[data-baseweb="select"] > div { background: #fff !important; border: 1px solid #d5ccc4 !important; border-radius: 2px !important; }
+.stTextInput input:focus, .stNumberInput input:focus, .stTextArea textarea:focus { border-color:#8b5e52 !important; }
+[data-baseweb="select"] > div { background:#fff !important; border:1px solid #d5ccc4 !important; border-radius:2px !important; }
+label[data-testid="stWidgetLabel"] p { font-size:0.75rem !important; font-weight:500 !important; letter-spacing:0.08em !important; text-transform:uppercase !important; color:#6b5f55 !important; }
 
 /* ── Progress ── */
-.stProgress > div > div { background: #8b5e52 !important; }
-
-/* ── Misc ── */
-hr { border-color: #e2d9ce !important; }
-.stCaption p { font-size: 0.73rem !important; color: #a89880 !important; font-style: italic !important; }
-#MainMenu, footer, [data-testid="stToolbar"] { visibility: hidden !important; }
+.stProgress > div > div { background:#8b5e52 !important; }
+hr { border-color:#e2d9ce !important; }
+.stCaption p { font-size:0.73rem !important; color:#a89880 !important; font-style:italic !important; }
+#MainMenu, footer, [data-testid="stToolbar"] { visibility:hidden !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -474,16 +467,59 @@ TOOLS = [
     ("📊→📄", "Excel → PDF",   "Convert spreadsheets to PDF"),
 ]
 
-# Sidebar tool selector
-with st.sidebar:
-    st.markdown("""
-    <div class="sidebar-logo">PDF <em>Studio</em></div>
-    <div class="sidebar-section">Select Tool</div>
-    """, unsafe_allow_html=True)
-    tool_names = [t[1] for t in TOOLS]
-    selected_tool = st.radio("", tool_names, label_visibility="collapsed")
-    st.markdown("---")
-    st.markdown("<p style='font-size:0.74rem; color:#3a3028; line-height:1.7;'>Choose a tool, then upload your PDF file to begin.</p>", unsafe_allow_html=True)
+# ── Tool navigation (session state) ──────────────────────────────
+if "selected_tool" not in st.session_state:
+    st.session_state.selected_tool = TOOLS[0][1]
+
+# Group tools into categories for the nav
+TOOL_GROUPS = {
+    "Convert": ["PDF → Word", "Images → PDF", "Word → PDF", "Excel → PDF"],
+    "Edit":    ["Add Text", "Redact", "Watermark", "Rotate Pages"],
+    "Manage":  ["Merge PDFs", "Split PDF", "Reorder Pages", "Compress", "Protect / Unlock", "Extract Images"],
+}
+
+# Find icon for a tool name
+def tool_icon(name):
+    for t in TOOLS:
+        if t[1] == name:
+            return t[0]
+    return ""
+
+# ── Top nav bar HTML ──────────────────────────────────────────────
+nav_html = """<div class="nav-bar">"""
+for group, items in TOOL_GROUPS.items():
+    nav_html += f'<div class="nav-group"><span class="nav-group-label">{group}</span><div class="nav-items">'
+    for item in items:
+        icon = tool_icon(item)
+        active = "active" if st.session_state.selected_tool == item else ""
+        safe_id = item.replace(" ","_").replace("→","to").replace("/","_")
+        nav_html += f'<button class="nav-btn {active}" onclick="selectTool(\'{safe_id}\')">{icon} <span>{item}</span></button>'
+    nav_html += "</div></div>"
+nav_html += "</div>"
+
+nav_html += """
+<script>
+function selectTool(toolId) {
+    // Use Streamlit's query param to communicate selection
+    const url = new URL(window.location);
+    url.searchParams.set('tool', toolId);
+    window.location.href = url.toString();
+}
+</script>
+"""
+st.markdown(nav_html, unsafe_allow_html=True)
+
+# Read tool from query params
+params = st.query_params
+if "tool" in params:
+    tool_id = params["tool"]
+    for t in TOOLS:
+        safe = t[1].replace(" ","_").replace("→","to").replace("/","_")
+        if safe == tool_id:
+            st.session_state.selected_tool = t[1]
+            break
+
+selected_tool = st.session_state.selected_tool
 
 st.markdown("""
 <div class="hero">
