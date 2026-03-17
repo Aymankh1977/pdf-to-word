@@ -40,37 +40,35 @@ html, body, [class*="css"] { font-family: 'Jost', sans-serif !important; }
 .hero-sub { font-size:0.76rem; color:#9a8e82; font-weight:300; letter-spacing:0.06em; }
 
 /* ── Navigation bar ── */
-.nav-bar {
-    display:flex; gap:0; border-bottom:2px solid #e2d9ce;
-    margin-bottom:2rem; background:#fff;
-    box-shadow:0 2px 12px rgba(28,25,23,0.06);
-    flex-wrap:wrap;
-}
-.nav-group {
-    display:flex; flex-direction:column;
-    border-right:1px solid #f0ebe5; flex:1; min-width:180px;
-}
+.nav-wrap { background:#fff; border-bottom:2px solid #e2d9ce; padding:16px 8px 12px; margin-bottom:1.5rem; box-shadow:0 2px 8px rgba(28,25,23,0.05); }
 .nav-group-label {
-    font-size:0.58rem; font-weight:600; letter-spacing:0.22em;
-    text-transform:uppercase; color:#a89880;
-    padding:8px 16px 4px; background:#fdf8f5;
-    border-bottom:1px solid #f0ebe5;
+    font-size:0.6rem !important; font-weight:600 !important;
+    letter-spacing:0.22em !important; text-transform:uppercase !important;
+    color:#a89880 !important; margin:0 0 6px 0 !important;
+    padding:0 !important; line-height:1 !important;
 }
-.nav-items { display:flex; flex-wrap:wrap; padding:6px 8px; gap:4px; }
-.nav-btn {
-    background:transparent; border:1px solid transparent;
-    border-radius:4px; padding:6px 10px; cursor:pointer;
-    font-family:'Jost',sans-serif; font-size:0.75rem;
-    font-weight:400; color:#6b5f55; letter-spacing:0.03em;
-    transition:all 0.15s; white-space:nowrap;
-    display:flex; align-items:center; gap:5px;
+/* Active nav button — override stButton for nav buttons only */
+[data-testid="stHorizontalBlock"] .stButton > button,
+.nav-wrap .stButton > button {
+    background: #f5ede8 !important;
+    color: #6b5f55 !important;
+    border: 1px solid #e2d9ce !important;
+    border-radius: 4px !important;
+    font-size: 0.72rem !important;
+    font-weight: 400 !important;
+    letter-spacing: 0.04em !important;
+    text-transform: none !important;
+    padding: 0.4rem 0.6rem !important;
+    margin-bottom: 4px !important;
+    text-align: left !important;
+    transition: all 0.15s !important;
 }
-.nav-btn:hover { background:#f5ede8; color:#1c1917; border-color:#ddd0c8; }
-.nav-btn.active {
-    background:#1c1917; color:#f7f3ee !important;
-    border-color:#1c1917; font-weight:500;
+[data-testid="stHorizontalBlock"] .stButton > button:hover,
+.nav-wrap .stButton > button:hover {
+    background: #ede0d8 !important;
+    color: #1c1917 !important;
+    border-color: #c4b0a6 !important;
 }
-.nav-btn span { font-size:0.73rem; }
 
 /* ── Tool heading ── */
 .tool-heading { display:flex; align-items:baseline; gap:0.8rem; flex-wrap:wrap; margin-bottom:1.8rem; padding-bottom:1rem; border-bottom:1px solid #e2d9ce; }
@@ -467,58 +465,36 @@ TOOLS = [
     ("📊→📄", "Excel → PDF",   "Convert spreadsheets to PDF"),
 ]
 
-# ── Tool navigation (session state) ──────────────────────────────
+# ── Tool navigation ──────────────────────────────────────────────
+TOOL_GROUPS = {
+    "🔄  Convert": ["PDF → Word", "Images → PDF", "Word → PDF", "Excel → PDF"],
+    "✏️  Edit":    ["Add Text", "Redact", "Watermark", "Rotate Pages"],
+    "📂  Manage":  ["Merge PDFs", "Split PDF", "Reorder Pages",
+                    "Compress", "Protect / Unlock", "Extract Images"],
+}
+
+# Build flat ordered list matching TOOLS order for display
+ALL_TOOL_NAMES = [t[1] for t in TOOLS]
+
+# Nav bar using columns + buttons
+st.markdown('<div class="nav-wrap">', unsafe_allow_html=True)
+nav_cols = st.columns(len(TOOL_GROUPS))
+for col_idx, (group_label, items) in enumerate(TOOL_GROUPS.items()):
+    with nav_cols[col_idx]:
+        st.markdown(f'<p class="nav-group-label">{group_label}</p>', unsafe_allow_html=True)
+        for item in items:
+            icon = next((t[0] for t in TOOLS if t[1] == item), "")
+            is_active = st.session_state.get("selected_tool", TOOLS[0][1]) == item
+            btn_style = "nav-btn-active" if is_active else "nav-btn"
+            if st.button(f"{icon}  {item}", key=f"nav_{item}",
+                         use_container_width=True):
+                st.session_state.selected_tool = item
+                st.rerun()
+st.markdown('</div>', unsafe_allow_html=True)
+st.markdown("---")
+
 if "selected_tool" not in st.session_state:
     st.session_state.selected_tool = TOOLS[0][1]
-
-# Group tools into categories for the nav
-TOOL_GROUPS = {
-    "Convert": ["PDF → Word", "Images → PDF", "Word → PDF", "Excel → PDF"],
-    "Edit":    ["Add Text", "Redact", "Watermark", "Rotate Pages"],
-    "Manage":  ["Merge PDFs", "Split PDF", "Reorder Pages", "Compress", "Protect / Unlock", "Extract Images"],
-}
-
-# Find icon for a tool name
-def tool_icon(name):
-    for t in TOOLS:
-        if t[1] == name:
-            return t[0]
-    return ""
-
-# ── Top nav bar HTML ──────────────────────────────────────────────
-nav_html = """<div class="nav-bar">"""
-for group, items in TOOL_GROUPS.items():
-    nav_html += f'<div class="nav-group"><span class="nav-group-label">{group}</span><div class="nav-items">'
-    for item in items:
-        icon = tool_icon(item)
-        active = "active" if st.session_state.selected_tool == item else ""
-        safe_id = item.replace(" ","_").replace("→","to").replace("/","_")
-        nav_html += f'<button class="nav-btn {active}" onclick="selectTool(\'{safe_id}\')">{icon} <span>{item}</span></button>'
-    nav_html += "</div></div>"
-nav_html += "</div>"
-
-nav_html += """
-<script>
-function selectTool(toolId) {
-    // Use Streamlit's query param to communicate selection
-    const url = new URL(window.location);
-    url.searchParams.set('tool', toolId);
-    window.location.href = url.toString();
-}
-</script>
-"""
-st.markdown(nav_html, unsafe_allow_html=True)
-
-# Read tool from query params
-params = st.query_params
-if "tool" in params:
-    tool_id = params["tool"]
-    for t in TOOLS:
-        safe = t[1].replace(" ","_").replace("→","to").replace("/","_")
-        if safe == tool_id:
-            st.session_state.selected_tool = t[1]
-            break
-
 selected_tool = st.session_state.selected_tool
 
 st.markdown("""
