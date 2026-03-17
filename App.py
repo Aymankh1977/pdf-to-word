@@ -24,88 +24,118 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Jost:wght@300;400;500;600&display=swap');
 
-html, body, [class*="css"] { font-family: 'Jost', sans-serif; letter-spacing: 0.01em; }
+/* ── Base ── */
+html, body, [class*="css"] { font-family: 'Jost', sans-serif !important; letter-spacing: 0.01em; }
+.stApp { background: #f7f3ee !important; color: #1c1917 !important; }
 
-.stApp { background: #f7f3ee; color: #1c1917; }
-
-[data-testid="stSidebar"] { background: #1c1917 !important; border-right: none !important; }
-[data-testid="stSidebar"] * { color: #e8e0d5 !important; }
-[data-testid="stSidebar"] .stRadio label {
-    font-family: 'Jost', sans-serif !important; font-size: 0.8rem !important;
-    font-weight: 400 !important; letter-spacing: 0.1em !important;
-    text-transform: uppercase !important; padding: 0.45rem 0 !important;
-    color: #7a6e64 !important; border-bottom: 1px solid #2a2420 !important;
-    display: block; width: 100%; transition: color 0.2s;
+/* ── Sidebar — multiple selectors for Streamlit version compatibility ── */
+section[data-testid="stSidebar"],
+section[data-testid="stSidebar"] > div,
+section[data-testid="stSidebar"] > div:first-child,
+div[data-testid="stSidebarContent"],
+.css-1d391kg, .css-163ttbj, .css-1wrcr25 {
+    background-color: #1c1917 !important;
+    background: #1c1917 !important;
 }
-[data-testid="stSidebar"] .stRadio label:hover { color: #e8e0d5 !important; }
-[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p { color: #4a4038 !important; font-size: 0.75rem !important; line-height: 1.6 !important; }
-[data-testid="stSidebar"] hr { border-color: #2a2420 !important; margin: 1rem 0 !important; }
+section[data-testid="stSidebar"] * { color: #e8e0d5 !important; }
+section[data-testid="stSidebar"] p { color: #7a6e64 !important; font-size: 0.78rem !important; }
+section[data-testid="stSidebar"] hr { border-color: #2a2420 !important; }
 
-.hero { text-align: center; padding: 3.5rem 1rem 2.5rem; border-bottom: 1px solid #e2d9ce; margin-bottom: 2.5rem; }
-.hero-eyebrow { font-family: 'Jost', sans-serif; font-size: 0.68rem; font-weight: 500; letter-spacing: 0.28em; text-transform: uppercase; color: #a89880; margin-bottom: 0.9rem; }
-.hero h1 { font-family: 'Cormorant Garamond', serif !important; font-size: 3.8rem !important; font-weight: 300 !important; color: #1c1917 !important; letter-spacing: -0.02em !important; line-height: 1.05 !important; margin-bottom: 0.8rem !important; }
-.hero h1 em { font-style: italic; color: #8b5e52; }
-.hero-sub { font-size: 0.78rem; color: #9a8e82; font-weight: 300; letter-spacing: 0.08em; }
+/* Sidebar radio buttons */
+section[data-testid="stSidebar"] .stRadio > div { gap: 0 !important; }
+section[data-testid="stSidebar"] .stRadio label {
+    display: block !important;
+    padding: 0.5rem 0.2rem !important;
+    border-bottom: 1px solid #2a2420 !important;
+    font-size: 0.8rem !important;
+    font-weight: 400 !important;
+    letter-spacing: 0.08em !important;
+    text-transform: uppercase !important;
+    color: #7a6e64 !important;
+    cursor: pointer !important;
+    transition: color 0.15s !important;
+}
+section[data-testid="stSidebar"] .stRadio label:hover { color: #f0ede8 !important; }
+section[data-testid="stSidebar"] .stRadio label[data-checked="true"],
+section[data-testid="stSidebar"] .stRadio input:checked + div { color: #c4967a !important; }
 
-.tool-heading { display: flex; align-items: baseline; gap: 0.8rem; margin-bottom: 2rem; padding-bottom: 1.2rem; border-bottom: 1px solid #e2d9ce; }
-.tool-heading .tool-icon { font-size: 1.1rem; }
-.tool-heading h2 { font-family: 'Cormorant Garamond', serif !important; font-size: 2rem !important; font-weight: 400 !important; color: #1c1917 !important; margin: 0 !important; }
-.tool-heading .tool-tag { font-size: 0.65rem; font-weight: 500; letter-spacing: 0.15em; text-transform: uppercase; color: #a89880; background: #ede6dc; padding: 3px 10px; border-radius: 20px; margin-left: 4px; }
+/* ── Hero ── */
+.hero { text-align:center; padding:3rem 1rem 2rem; border-bottom:1px solid #e2d9ce; margin-bottom:2rem; }
+.hero-eyebrow { font-family:'Jost',sans-serif; font-size:0.68rem; font-weight:500; letter-spacing:0.28em; text-transform:uppercase; color:#a89880; margin-bottom:0.8rem; }
+.hero h1 { font-family:'Cormorant Garamond',serif !important; font-size:3.4rem !important; font-weight:300 !important; color:#1c1917 !important; letter-spacing:-0.02em !important; line-height:1.05 !important; margin-bottom:0.6rem !important; }
+.hero h1 em { font-style:italic; color:#8b5e52; }
+.hero-sub { font-size:0.78rem; color:#9a8e82; font-weight:300; letter-spacing:0.08em; }
 
-.sidebar-logo { font-family: 'Cormorant Garamond', serif; font-size: 1.5rem; font-weight: 300; color: #e8e0d5; letter-spacing: 0.04em; padding: 1.5rem 0 1.2rem; border-bottom: 1px solid #2a2420; margin-bottom: 1rem; }
-.sidebar-logo em { font-style: italic; color: #c4967a; }
-.sidebar-section { font-size: 0.6rem; letter-spacing: 0.22em; text-transform: uppercase; color: #4a4038 !important; margin: 1.2rem 0 0.6rem; font-weight: 600; }
+/* ── Sidebar branding ── */
+.sidebar-logo { font-family:'Cormorant Garamond',serif; font-size:1.5rem; font-weight:300; color:#e8e0d5 !important; letter-spacing:0.04em; padding:1.2rem 0 1rem; border-bottom:1px solid #2a2420; margin-bottom:0.8rem; }
+.sidebar-logo em { font-style:italic; color:#c4967a !important; }
+.sidebar-section { font-size:0.6rem; letter-spacing:0.22em; text-transform:uppercase; color:#4a4038 !important; margin:1rem 0 0.5rem; font-weight:600; display:block; }
 
-[data-testid="stFileUploader"] { background: #ffffff !important; border: 1px solid #d5ccc4 !important; border-radius: 2px !important; }
-[data-testid="stFileUploader"]:hover { border-color: #8b5e52 !important; }
+/* ── Tool heading ── */
+.tool-heading { display:flex; align-items:baseline; gap:0.8rem; margin-bottom:1.8rem; padding-bottom:1rem; border-bottom:1px solid #e2d9ce; flex-wrap:wrap; }
+.tool-heading h2 { font-family:'Cormorant Garamond',serif !important; font-size:1.9rem !important; font-weight:400 !important; color:#1c1917 !important; margin:0 !important; }
+.tool-heading .tool-tag { font-size:0.65rem; font-weight:500; letter-spacing:0.15em; text-transform:uppercase; color:#a89880; background:#ede6dc; padding:3px 10px; border-radius:20px; }
 
+/* ── File uploader ── */
+[data-testid="stFileUploader"] { background:#ffffff !important; border:1px solid #d5ccc4 !important; border-radius:3px !important; }
+[data-testid="stFileUploader"]:hover { border-color:#8b5e52 !important; }
+
+/* ── Buttons ── */
 .stButton > button {
-    background: #1c1917 !important; color: #f7f3ee !important; border: none !important;
-    border-radius: 2px !important; font-family: 'Jost', sans-serif !important;
-    font-weight: 500 !important; font-size: 0.72rem !important;
-    letter-spacing: 0.14em !important; text-transform: uppercase !important;
-    padding: 0.7rem 2.2rem !important; transition: background 0.2s !important;
+    background:#1c1917 !important; color:#f7f3ee !important; border:none !important;
+    border-radius:2px !important; font-family:'Jost',sans-serif !important;
+    font-weight:500 !important; font-size:0.72rem !important;
+    letter-spacing:0.14em !important; text-transform:uppercase !important;
+    padding:0.65rem 2rem !important; transition:background 0.2s !important;
 }
-.stButton > button:hover { background: #3d3530 !important; }
+.stButton > button:hover { background:#3d3530 !important; }
 
 [data-testid="stDownloadButton"] > button {
-    background: transparent !important; color: #1c1917 !important;
-    border: 1.5px solid #1c1917 !important; border-radius: 2px !important;
-    font-family: 'Jost', sans-serif !important; font-weight: 500 !important;
-    font-size: 0.72rem !important; letter-spacing: 0.14em !important;
-    text-transform: uppercase !important; padding: 0.65rem 1.5rem !important;
-    width: 100% !important; transition: all 0.2s !important;
+    background:transparent !important; color:#1c1917 !important;
+    border:1.5px solid #1c1917 !important; border-radius:2px !important;
+    font-family:'Jost',sans-serif !important; font-weight:500 !important;
+    font-size:0.72rem !important; letter-spacing:0.14em !important;
+    text-transform:uppercase !important; padding:0.65rem 1.5rem !important;
+    width:100% !important; transition:all 0.2s !important;
 }
-[data-testid="stDownloadButton"] > button:hover { background: #1c1917 !important; color: #f7f3ee !important; }
+[data-testid="stDownloadButton"] > button:hover { background:#1c1917 !important; color:#f7f3ee !important; }
 
-[data-testid="stInfo"] { background: #ede6dc !important; border: none !important; border-left: 3px solid #a89880 !important; border-radius: 0 !important; color: #1c1917 !important; }
-[data-testid="stSuccess"] { background: #e8ede6 !important; border: none !important; border-left: 3px solid #6b8b5e !important; border-radius: 0 !important; }
-[data-testid="stError"] { background: #f0e6e6 !important; border: none !important; border-left: 3px solid #8b5e5e !important; border-radius: 0 !important; }
+/* ── Info / success / error ── */
+[data-testid="stInfo"], div.stInfo { background:#ede6dc !important; border:none !important; border-left:3px solid #a89880 !important; border-radius:0 !important; color:#1c1917 !important; }
+[data-testid="stSuccess"], div.stSuccess { background:#e8ede6 !important; border:none !important; border-left:3px solid #6b8b5e !important; border-radius:0 !important; }
+[data-testid="stError"], div.stError { background:#f0e6e6 !important; border:none !important; border-left:3px solid #8b5e5e !important; border-radius:0 !important; }
 
-.result-card { background: #ffffff; border: 1px solid #e2d9ce; border-left: 3px solid #8b5e52; border-radius: 0 2px 2px 0; padding: 1rem 1.4rem; margin-bottom: 0.6rem; }
-.result-card .fname { font-family: 'Jost', sans-serif; font-weight: 500; font-size: 0.88rem; color: #1c1917; margin-bottom: 3px; }
-.result-card .fmeta { font-size: 0.76rem; color: #9a8e82; font-weight: 300; }
+/* ── Result card ── */
+.result-card { background:#ffffff; border:1px solid #e2d9ce; border-left:3px solid #8b5e52; border-radius:0 2px 2px 0; padding:1rem 1.4rem; margin-bottom:0.6rem; }
+.result-card .fname { font-family:'Jost',sans-serif; font-weight:500; font-size:0.88rem; color:#1c1917; margin-bottom:3px; }
+.result-card .fmeta { font-size:0.76rem; color:#9a8e82; font-weight:300; }
 
-.stProgress > div > div { background: #8b5e52 !important; }
-
-.stTextInput input, .stNumberInput input {
-    background: #ffffff !important; border: 1px solid #d5ccc4 !important;
-    border-radius: 2px !important; color: #1c1917 !important;
-    font-family: 'Jost', sans-serif !important; font-size: 0.88rem !important;
+/* ── Inputs ── */
+.stTextInput input, .stNumberInput input, .stTextArea textarea {
+    background:#ffffff !important; border:1px solid #d5ccc4 !important;
+    border-radius:2px !important; color:#1c1917 !important;
+    font-family:'Jost',sans-serif !important;
 }
-.stTextInput input:focus, .stNumberInput input:focus { border-color: #8b5e52 !important; box-shadow: 0 0 0 1px #8b5e52 !important; }
-
-[data-baseweb="select"] > div { background: #ffffff !important; border: 1px solid #d5ccc4 !important; border-radius: 2px !important; }
-
-label[data-testid="stWidgetLabel"] {
-    font-family: 'Jost', sans-serif !important; font-size: 0.72rem !important;
-    font-weight: 500 !important; letter-spacing: 0.12em !important;
-    text-transform: uppercase !important; color: #6b5f55 !important;
+.stTextInput input:focus, .stNumberInput input:focus, .stTextArea textarea:focus {
+    border-color:#8b5e52 !important; box-shadow:0 0 0 1px #8b5e52 !important;
 }
-.stCaption, [data-testid="stCaptionContainer"] { font-size: 0.73rem !important; color: #a89880 !important; font-style: italic !important; }
+[data-baseweb="select"] > div { background:#ffffff !important; border:1px solid #d5ccc4 !important; border-radius:2px !important; }
 
-hr { border-color: #e2d9ce !important; margin: 1.5rem 0 !important; }
-#MainMenu, footer, [data-testid="stToolbar"] { visibility: hidden; }
+/* ── Labels ── */
+label[data-testid="stWidgetLabel"] p, .stRadio label, .stCheckbox label span {
+    font-family:'Jost',sans-serif !important; font-size:0.75rem !important;
+    font-weight:500 !important; letter-spacing:0.1em !important;
+    text-transform:uppercase !important; color:#6b5f55 !important;
+}
+
+/* ── Progress & sliders ── */
+.stProgress > div > div { background:#8b5e52 !important; }
+[data-baseweb="slider"] [role="slider"] { background:#8b5e52 !important; }
+
+/* ── Misc ── */
+hr { border-color:#e2d9ce !important; margin:1.5rem 0 !important; }
+.stCaption p { font-size:0.73rem !important; color:#a89880 !important; font-style:italic !important; }
+#MainMenu, footer, [data-testid="stToolbar"] { visibility:hidden !important; }
 </style>
 """, unsafe_allow_html=True)
 
