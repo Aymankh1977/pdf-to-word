@@ -18,124 +18,117 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.colors import Color, HexColor
 
 # ── Page config ───────────────────────────────────────────────────────────────
-st.set_page_config(page_title="PDF Studio", page_icon="📄", layout="wide")
+st.set_page_config(
+    page_title="PDF Studio",
+    page_icon="📄",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Jost:wght@300;400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=Jost:wght@300;400;500;600&display=swap');
 
-/* ── Base ── */
-html, body, [class*="css"] { font-family: 'Jost', sans-serif !important; letter-spacing: 0.01em; }
-.stApp { background: #f7f3ee !important; color: #1c1917 !important; }
+/* Base */
+html, body, [class*="css"] { font-family: 'Jost', sans-serif !important; }
+.stApp { background-color: #f7f3ee !important; }
 
-/* ── Sidebar — multiple selectors for Streamlit version compatibility ── */
-section[data-testid="stSidebar"],
-section[data-testid="stSidebar"] > div,
-section[data-testid="stSidebar"] > div:first-child,
-div[data-testid="stSidebarContent"],
-.css-1d391kg, .css-163ttbj, .css-1wrcr25 {
-    background-color: #1c1917 !important;
-    background: #1c1917 !important;
-}
-section[data-testid="stSidebar"] * { color: #e8e0d5 !important; }
-section[data-testid="stSidebar"] p { color: #7a6e64 !important; font-size: 0.78rem !important; }
-section[data-testid="stSidebar"] hr { border-color: #2a2420 !important; }
+/* ── SIDEBAR — catch-all approach ── */
+[data-testid="stSidebar"] { background-color: #1c1917 !important; }
+[data-testid="stSidebar"] > div { background-color: #1c1917 !important; }
+[data-testid="stSidebar"] > div > div { background-color: #1c1917 !important; }
+[data-testid="stSidebarContent"] { background-color: #1c1917 !important; }
 
-/* Sidebar radio buttons */
-section[data-testid="stSidebar"] .stRadio > div { gap: 0 !important; }
-section[data-testid="stSidebar"] .stRadio label {
-    display: block !important;
-    padding: 0.5rem 0.2rem !important;
-    border-bottom: 1px solid #2a2420 !important;
-    font-size: 0.8rem !important;
+/* Sidebar text */
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] span,
+[data-testid="stSidebar"] label { color: #e8e0d5 !important; }
+
+/* Sidebar radio */
+[data-testid="stSidebar"] .stRadio label {
+    color: #a89880 !important;
+    font-size: 0.82rem !important;
     font-weight: 400 !important;
-    letter-spacing: 0.08em !important;
-    text-transform: uppercase !important;
-    color: #7a6e64 !important;
-    cursor: pointer !important;
-    transition: color 0.15s !important;
+    letter-spacing: 0.06em !important;
+    padding: 6px 0 !important;
+    border-bottom: 1px solid #2e2925 !important;
+    display: block !important;
 }
-section[data-testid="stSidebar"] .stRadio label:hover { color: #f0ede8 !important; }
-section[data-testid="stSidebar"] .stRadio label[data-checked="true"],
-section[data-testid="stSidebar"] .stRadio input:checked + div { color: #c4967a !important; }
+[data-testid="stSidebar"] .stRadio label:hover { color: #f0ede8 !important; }
+
+/* Sidebar custom HTML */
+.sidebar-logo {
+    font-family: 'Cormorant Garamond', serif !important;
+    font-size: 1.6rem; font-weight: 300; color: #e8e0d5;
+    padding: 0.8rem 0 0.8rem; border-bottom: 1px solid #2e2925;
+    margin-bottom: 0.8rem; letter-spacing: 0.04em;
+}
+.sidebar-logo em { font-style: italic; color: #c4967a; }
+.sidebar-section {
+    font-size: 0.6rem; letter-spacing: 0.22em; text-transform: uppercase;
+    color: #5a4e44; margin: 0.8rem 0 0.4rem; font-weight: 600; display: block;
+}
 
 /* ── Hero ── */
-.hero { text-align:center; padding:3rem 1rem 2rem; border-bottom:1px solid #e2d9ce; margin-bottom:2rem; }
-.hero-eyebrow { font-family:'Jost',sans-serif; font-size:0.68rem; font-weight:500; letter-spacing:0.28em; text-transform:uppercase; color:#a89880; margin-bottom:0.8rem; }
-.hero h1 { font-family:'Cormorant Garamond',serif !important; font-size:3.4rem !important; font-weight:300 !important; color:#1c1917 !important; letter-spacing:-0.02em !important; line-height:1.05 !important; margin-bottom:0.6rem !important; }
-.hero h1 em { font-style:italic; color:#8b5e52; }
-.hero-sub { font-size:0.78rem; color:#9a8e82; font-weight:300; letter-spacing:0.08em; }
-
-/* ── Sidebar branding ── */
-.sidebar-logo { font-family:'Cormorant Garamond',serif; font-size:1.5rem; font-weight:300; color:#e8e0d5 !important; letter-spacing:0.04em; padding:1.2rem 0 1rem; border-bottom:1px solid #2a2420; margin-bottom:0.8rem; }
-.sidebar-logo em { font-style:italic; color:#c4967a !important; }
-.sidebar-section { font-size:0.6rem; letter-spacing:0.22em; text-transform:uppercase; color:#4a4038 !important; margin:1rem 0 0.5rem; font-weight:600; display:block; }
+.hero { text-align: center; padding: 2.5rem 1rem 2rem; border-bottom: 1px solid #e2d9ce; margin-bottom: 2rem; }
+.hero-eyebrow { font-size: 0.68rem; font-weight: 500; letter-spacing: 0.28em; text-transform: uppercase; color: #a89880; margin-bottom: 0.7rem; }
+.hero h1 { font-family: 'Cormorant Garamond', serif !important; font-size: 3.2rem !important; font-weight: 300 !important; color: #1c1917 !important; letter-spacing: -0.02em !important; margin-bottom: 0.5rem !important; }
+.hero h1 em { font-style: italic; color: #8b5e52; }
+.hero-sub { font-size: 0.78rem; color: #9a8e82; font-weight: 300; letter-spacing: 0.06em; }
 
 /* ── Tool heading ── */
-.tool-heading { display:flex; align-items:baseline; gap:0.8rem; margin-bottom:1.8rem; padding-bottom:1rem; border-bottom:1px solid #e2d9ce; flex-wrap:wrap; }
-.tool-heading h2 { font-family:'Cormorant Garamond',serif !important; font-size:1.9rem !important; font-weight:400 !important; color:#1c1917 !important; margin:0 !important; }
-.tool-heading .tool-tag { font-size:0.65rem; font-weight:500; letter-spacing:0.15em; text-transform:uppercase; color:#a89880; background:#ede6dc; padding:3px 10px; border-radius:20px; }
+.tool-heading { display: flex; align-items: baseline; gap: 0.8rem; flex-wrap: wrap; margin-bottom: 1.8rem; padding-bottom: 1rem; border-bottom: 1px solid #e2d9ce; }
+.tool-heading h2 { font-family: 'Cormorant Garamond', serif !important; font-size: 1.9rem !important; font-weight: 400 !important; color: #1c1917 !important; margin: 0 !important; }
+.tool-heading .tool-tag { font-size: 0.65rem; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: #a89880; background: #ede6dc; padding: 3px 10px; border-radius: 20px; }
 
 /* ── File uploader ── */
-[data-testid="stFileUploader"] { background:#ffffff !important; border:1px solid #d5ccc4 !important; border-radius:3px !important; }
-[data-testid="stFileUploader"]:hover { border-color:#8b5e52 !important; }
+[data-testid="stFileUploader"] { background: #fff !important; border: 1px solid #d5ccc4 !important; border-radius: 3px !important; }
 
 /* ── Buttons ── */
 .stButton > button {
-    background:#1c1917 !important; color:#f7f3ee !important; border:none !important;
-    border-radius:2px !important; font-family:'Jost',sans-serif !important;
-    font-weight:500 !important; font-size:0.72rem !important;
-    letter-spacing:0.14em !important; text-transform:uppercase !important;
-    padding:0.65rem 2rem !important; transition:background 0.2s !important;
+    background: #1c1917 !important; color: #f7f3ee !important; border: none !important;
+    border-radius: 2px !important; font-family: 'Jost', sans-serif !important;
+    font-weight: 500 !important; font-size: 0.72rem !important;
+    letter-spacing: 0.14em !important; text-transform: uppercase !important;
+    padding: 0.65rem 2rem !important;
 }
-.stButton > button:hover { background:#3d3530 !important; }
+.stButton > button:hover { background: #3d3530 !important; }
 
 [data-testid="stDownloadButton"] > button {
-    background:transparent !important; color:#1c1917 !important;
-    border:1.5px solid #1c1917 !important; border-radius:2px !important;
-    font-family:'Jost',sans-serif !important; font-weight:500 !important;
-    font-size:0.72rem !important; letter-spacing:0.14em !important;
-    text-transform:uppercase !important; padding:0.65rem 1.5rem !important;
-    width:100% !important; transition:all 0.2s !important;
+    background: transparent !important; color: #1c1917 !important;
+    border: 1.5px solid #1c1917 !important; border-radius: 2px !important;
+    font-family: 'Jost', sans-serif !important; font-weight: 500 !important;
+    font-size: 0.72rem !important; letter-spacing: 0.14em !important;
+    text-transform: uppercase !important; width: 100% !important;
 }
-[data-testid="stDownloadButton"] > button:hover { background:#1c1917 !important; color:#f7f3ee !important; }
+[data-testid="stDownloadButton"] > button:hover { background: #1c1917 !important; color: #f7f3ee !important; }
 
-/* ── Info / success / error ── */
-[data-testid="stInfo"], div.stInfo { background:#ede6dc !important; border:none !important; border-left:3px solid #a89880 !important; border-radius:0 !important; color:#1c1917 !important; }
-[data-testid="stSuccess"], div.stSuccess { background:#e8ede6 !important; border:none !important; border-left:3px solid #6b8b5e !important; border-radius:0 !important; }
-[data-testid="stError"], div.stError { background:#f0e6e6 !important; border:none !important; border-left:3px solid #8b5e5e !important; border-radius:0 !important; }
+/* ── Alerts ── */
+[data-testid="stInfo"]    { background: #ede6dc !important; border: none !important; border-left: 3px solid #a89880 !important; border-radius: 0 !important; }
+[data-testid="stSuccess"] { background: #e8ede6 !important; border: none !important; border-left: 3px solid #6b8b5e !important; border-radius: 0 !important; }
+[data-testid="stError"]   { background: #f0e6e6 !important; border: none !important; border-left: 3px solid #8b5e5e !important; border-radius: 0 !important; }
 
 /* ── Result card ── */
-.result-card { background:#ffffff; border:1px solid #e2d9ce; border-left:3px solid #8b5e52; border-radius:0 2px 2px 0; padding:1rem 1.4rem; margin-bottom:0.6rem; }
-.result-card .fname { font-family:'Jost',sans-serif; font-weight:500; font-size:0.88rem; color:#1c1917; margin-bottom:3px; }
-.result-card .fmeta { font-size:0.76rem; color:#9a8e82; font-weight:300; }
+.result-card { background: #fff; border: 1px solid #e2d9ce; border-left: 3px solid #8b5e52; padding: 1rem 1.4rem; margin-bottom: 0.6rem; border-radius: 0 2px 2px 0; }
+.result-card .fname { font-weight: 500; font-size: 0.88rem; color: #1c1917; margin-bottom: 3px; }
+.result-card .fmeta { font-size: 0.76rem; color: #9a8e82; }
 
 /* ── Inputs ── */
 .stTextInput input, .stNumberInput input, .stTextArea textarea {
-    background:#ffffff !important; border:1px solid #d5ccc4 !important;
-    border-radius:2px !important; color:#1c1917 !important;
-    font-family:'Jost',sans-serif !important;
+    background: #fff !important; border: 1px solid #d5ccc4 !important;
+    border-radius: 2px !important; color: #1c1917 !important;
+    font-family: 'Jost', sans-serif !important;
 }
-.stTextInput input:focus, .stNumberInput input:focus, .stTextArea textarea:focus {
-    border-color:#8b5e52 !important; box-shadow:0 0 0 1px #8b5e52 !important;
-}
-[data-baseweb="select"] > div { background:#ffffff !important; border:1px solid #d5ccc4 !important; border-radius:2px !important; }
+.stTextInput input:focus, .stNumberInput input:focus { border-color: #8b5e52 !important; }
+[data-baseweb="select"] > div { background: #fff !important; border: 1px solid #d5ccc4 !important; border-radius: 2px !important; }
 
-/* ── Labels ── */
-label[data-testid="stWidgetLabel"] p, .stRadio label, .stCheckbox label span {
-    font-family:'Jost',sans-serif !important; font-size:0.75rem !important;
-    font-weight:500 !important; letter-spacing:0.1em !important;
-    text-transform:uppercase !important; color:#6b5f55 !important;
-}
-
-/* ── Progress & sliders ── */
-.stProgress > div > div { background:#8b5e52 !important; }
-[data-baseweb="slider"] [role="slider"] { background:#8b5e52 !important; }
+/* ── Progress ── */
+.stProgress > div > div { background: #8b5e52 !important; }
 
 /* ── Misc ── */
-hr { border-color:#e2d9ce !important; margin:1.5rem 0 !important; }
-.stCaption p { font-size:0.73rem !important; color:#a89880 !important; font-style:italic !important; }
-#MainMenu, footer, [data-testid="stToolbar"] { visibility:hidden !important; }
+hr { border-color: #e2d9ce !important; }
+.stCaption p { font-size: 0.73rem !important; color: #a89880 !important; font-style: italic !important; }
+#MainMenu, footer, [data-testid="stToolbar"] { visibility: hidden !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -464,14 +457,6 @@ def reorder_pages(pdf_bytes, new_order):
 #  UI
 # ═══════════════════════════════════════════════════════════════════
 
-st.markdown("""
-<div class="hero">
-    <div class="hero-eyebrow">Professional Document Tools</div>
-    <h1>PDF <em>Studio</em></h1>
-    <div class="hero-sub">Convert &nbsp;&middot;&nbsp; Merge &nbsp;&middot;&nbsp; Split &nbsp;&middot;&nbsp; Watermark &nbsp;&middot;&nbsp; Compress &nbsp;&middot;&nbsp; Protect &nbsp;&middot;&nbsp; Annotate</div>
-</div>
-""", unsafe_allow_html=True)
-
 TOOLS = [
     ("📝", "PDF → Word",       "Convert to editable .docx"),
     ("🔗", "Merge PDFs",       "Combine multiple PDFs"),
@@ -499,6 +484,15 @@ with st.sidebar:
     selected_tool = st.radio("", tool_names, label_visibility="collapsed")
     st.markdown("---")
     st.markdown("<p style='font-size:0.74rem; color:#3a3028; line-height:1.7;'>Choose a tool, then upload your PDF file to begin.</p>", unsafe_allow_html=True)
+
+st.markdown("""
+<div class="hero">
+    <div class="hero-eyebrow">Professional Document Tools</div>
+    <h1>PDF <em>Studio</em></h1>
+    <div class="hero-sub">Convert &nbsp;&middot;&nbsp; Merge &nbsp;&middot;&nbsp; Split &nbsp;&middot;&nbsp; Watermark &nbsp;&middot;&nbsp; Compress &nbsp;&middot;&nbsp; Protect &nbsp;&middot;&nbsp; Annotate</div>
+</div>
+""", unsafe_allow_html=True)
+
 
 icon = [t[0] for t in TOOLS if t[1]==selected_tool][0]
 desc = [t[2] for t in TOOLS if t[1]==selected_tool][0]
