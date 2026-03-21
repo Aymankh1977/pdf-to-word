@@ -42,6 +42,7 @@ FALLBACK_MODEL = "claude-sonnet-4-5"
 CHAT_MODEL     = "claude-haiku-4-5-20251001"
 
 JOURNALS = [
+    # General HPE
     "Medical Teacher",
     "BMC Medical Education",
     "Academic Medicine",
@@ -49,6 +50,13 @@ JOURNALS = [
     "JGME – Journal of Graduate Medical Education",
     "Teaching and Learning in Medicine",
     "Advances in Health Sciences Education",
+    # Dental Education
+    "Journal of Dental Education (JDE)",
+    "European Journal of Dental Education (EJDE)",
+    "Journal of Dental Research (JDR)",
+    "European Journal of Dental Education – Clinical Focus",
+    "Journal of Dentistry",
+    "Dental Education in Europe – ADEE Journal",
 ]
 
 REVIEW_CRITERIA = {
