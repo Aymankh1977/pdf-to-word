@@ -449,28 +449,33 @@ def reorder_pages(pdf_bytes, new_order):
 # ═══════════════════════════════════════════════════════════════════
 
 TOOLS = [
-    ("📝", "PDF → Word",       "Convert to editable .docx"),
+    ("📝", "PDF → Word",       "PDF to Word document"),
+    ("📊", "PDF → Excel",      "PDF to Excel spreadsheet"),
+    ("📋", "PDF → CSV",        "PDF to CSV data file"),
+    ("🖼️", "PDF → Images",     "PDF pages to PNG/JPG"),
+    ("📄", "PDF → Text",       "PDF to plain text"),
     ("🔗", "Merge PDFs",       "Combine multiple PDFs"),
     ("✂️",  "Split PDF",        "Extract page ranges"),
     ("🔄", "Rotate Pages",     "Rotate any page"),
     ("💧", "Watermark",        "Stamp text on pages"),
     ("🗜️", "Compress",         "Reduce file size"),
     ("🔒", "Protect / Unlock", "Password management"),
-    ("🖼️", "Extract Images",   "Save pages as PNG/JPG"),
     ("✍️",  "Add Text",         "Annotate pages"),
     ("⬛", "Redact",           "Black-out content"),
     ("📋", "Reorder Pages",    "Drag pages into order"),
-    ("🖼️→📄", "Images → PDF",  "Convert images to PDF"),
-    ("📄→📄", "Word → PDF",    "Convert Word docs to PDF"),
-    ("📊→📄", "Excel → PDF",   "Convert spreadsheets to PDF"),
+    ("🖼️", "Images → PDF",     "Images to PDF"),
+    ("📄", "Word → PDF",       "Word docs to PDF"),
+    ("📊", "Excel → PDF",      "Spreadsheets to PDF"),
 ]
 
 # ── Tool navigation ──────────────────────────────────────────────
 TOOL_GROUPS = {
-    "🔄  Convert": ["PDF → Word", "Images → PDF", "Word → PDF", "Excel → PDF"],
-    "✏️  Edit":    ["Add Text", "Redact", "Watermark", "Rotate Pages"],
-    "📂  Manage":  ["Merge PDFs", "Split PDF", "Reorder Pages",
-                    "Compress", "Protect / Unlock", "Extract Images"],
+    "📤  PDF to...":  ["PDF → Word", "PDF → Excel", "PDF → CSV",
+                       "PDF → Images", "PDF → Text"],
+    "📥  ...to PDF":  ["Images → PDF", "Word → PDF", "Excel → PDF"],
+    "✏️  Edit PDF":   ["Add Text", "Redact", "Watermark", "Rotate Pages"],
+    "📂  Manage PDF": ["Merge PDFs", "Split PDF", "Reorder Pages",
+                       "Compress", "Protect / Unlock"],
 }
 
 # Build flat ordered list matching TOOLS order for display
@@ -743,309 +748,160 @@ elif selected_tool == "Extract Images":
 elif selected_tool == "Add Text":
 
     FONTS = {
-        "Serif Regular (Arabic ✓)":     "/usr/share/fonts/truetype/freefont/FreeSerif.ttf",
-        "Serif Bold (Arabic ✓)":        "/usr/share/fonts/truetype/freefont/FreeSerifBold.ttf",
-        "Serif Italic (Arabic ✓)":      "/usr/share/fonts/truetype/freefont/FreeSerifItalic.ttf",
-        "Serif Bold Italic (Arabic ✓)": "/usr/share/fonts/truetype/freefont/FreeSerifBoldItalic.ttf",
-        "Sans Regular (Arabic ✓)":      "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-        "Sans Bold (Arabic ✓)":         "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
-        "Sans Oblique (Arabic ✓)":      "/usr/share/fonts/truetype/freefont/FreeSansOblique.ttf",
-        "Sans Bold Oblique (Arabic ✓)": "/usr/share/fonts/truetype/freefont/FreeSansBoldOblique.ttf",
-        "Mono":                         "/usr/share/fonts/truetype/freefont/FreeMono.ttf",
-        "Mono Bold":                    "/usr/share/fonts/truetype/freefont/FreeMonoBold.ttf",
-        "DejaVu Sans":                  "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "DejaVu Sans Bold":             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "Serif (Arabic ✓)":      "/usr/share/fonts/truetype/freefont/FreeSerif.ttf",
+        "Serif Bold (Arabic ✓)": "/usr/share/fonts/truetype/freefont/FreeSerifBold.ttf",
+        "Serif Italic":          "/usr/share/fonts/truetype/freefont/FreeSerifItalic.ttf",
+        "Sans (Arabic ✓)":       "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+        "Sans Bold (Arabic ✓)":  "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+        "Sans Italic":           "/usr/share/fonts/truetype/freefont/FreeSansOblique.ttf",
+        "Mono":                  "/usr/share/fonts/truetype/freefont/FreeMono.ttf",
+        "DejaVu Sans":           "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "DejaVu Sans Bold":      "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     }
 
-    # ── Initialise session state ──────────────────────────────
-    for key, val in [
-        ("at_annotations", []),
-        ("at_pdf_bytes", None),
-        ("at_page", 1),
-        ("at_click_x", 10),
-        ("at_click_y", 10),
-    ]:
-        if key not in st.session_state:
-            st.session_state[key] = val
+    # Init state
+    if "at_pdf"   not in st.session_state: st.session_state.at_pdf   = None
+    if "at_queue" not in st.session_state: st.session_state.at_queue = []
 
-    # ── File upload ───────────────────────────────────────────
-    f = st.file_uploader("Upload PDF", type=["pdf"], key="at_uploader")
+    # Upload
+    f = st.file_uploader("Upload PDF", type=["pdf"], key="at_upload")
     if f:
         data = f.read()
-        if st.session_state.at_pdf_bytes != data:
-            st.session_state.at_pdf_bytes = data
-            st.session_state.at_annotations = []
+        if st.session_state.at_pdf != data:
+            st.session_state.at_pdf   = data
+            st.session_state.at_queue = []
 
-    if st.session_state.at_pdf_bytes:
-        pdf_bytes = st.session_state.at_pdf_bytes
+    if st.session_state.at_pdf:
+        pdf_bytes = st.session_state.at_pdf
         info = get_pdf_info(pdf_bytes)
 
-        # ── Controls ──────────────────────────────────────────
-        st.markdown("#### ✍️ Text & Style")
-        col_t, col_f, col_s, col_c, col_p = st.columns([3,2,1,1,1])
-        with col_t:
-            annot_text = st.text_input("Text (Arabic / English / mixed)",
-                                        value="اكتب هنا · Type here", key="at_text")
-        with col_f:
+        st.markdown("#### Step 1 — Write your text")
+        c1, c2, c3 = st.columns([3, 2, 1])
+        with c1:
+            text = st.text_area("Text (Arabic & English supported)",
+                                 "Type here · اكتب هنا", height=80, key="at_text")
+        with c2:
             font_name = st.selectbox("Font", list(FONTS.keys()), key="at_font")
-        with col_s:
-            font_size_a = st.number_input("Size pt", 6, 120, 18, key="at_size")
-        with col_c:
-            color_a = st.color_picker("Colour", "#1c1917", key="at_color")
-        with col_p:
-            page_num = st.number_input("Page", 1, info["pages"], 1, key="at_page_num")
-        font_path = FONTS[font_name]
+            color     = st.color_picker("Colour", "#1c1917", key="at_color")
+        with c3:
+            size  = st.number_input("Size pt", 6, 120, 18, key="at_size")
+            page  = st.number_input("Page", 1, info["pages"], 1, key="at_page")
 
-        st.markdown("---")
-        st.markdown("#### 📍 Click on the page to place your text")
-        st.caption("Click anywhere on the document below. The position is saved automatically — then click **Add to Document**.")
+        st.markdown("#### Step 2 — Set position")
+        st.caption("Use the sliders to position your text on the page. The preview updates live.")
 
-        # ── Render page as base64 ─────────────────────────────
-        import base64
-        import streamlit.components.v1 as components
-        from PIL import ImageFont, ImageDraw
-        from reportlab.lib.utils import ImageReader
+        px, py = st.columns(2)
+        with px: x_pct = st.slider("← Horizontal →", 0, 95, 10, key="at_x",
+                                    help="0% = left edge, 95% = right side")
+        with py: y_pct = st.slider("↑ Vertical ↓",   0, 95, 10, key="at_y",
+                                    help="0% = top, 95% = bottom")
 
+        # Live preview
         try:
-            prev_imgs = convert_from_bytes(pdf_bytes, dpi=120,
-                                            first_page=int(page_num),
-                                            last_page=int(page_num))
-            prev_img = prev_imgs[0]
-            prev_w, prev_h = prev_img.size
-            pg_buf = io.BytesIO()
-            prev_img.save(pg_buf, "PNG")
-            pg_b64 = base64.b64encode(pg_buf.getvalue()).decode()
-            page_ok = True
+            from PIL import ImageFont, ImageDraw
+            prev_imgs = convert_from_bytes(pdf_bytes, dpi=100,
+                                            first_page=int(page), last_page=int(page))
+            prev = prev_imgs[0].copy().convert("RGBA")
+            pw, ph = prev.size
+            fp  = ImageFont.truetype(FONTS[font_name], size * 2)
+            ch2 = color.lstrip("#")
+            cr, cg, cb = int(ch2[0:2],16), int(ch2[2:4],16), int(ch2[4:6],16)
+            draw = ImageDraw.Draw(prev)
+            px2  = int(x_pct/100*pw)
+            py2  = int(y_pct/100*ph)
+            draw.text((px2, py2), text, font=fp, fill=(cr,cg,cb,220))
+            # Crosshair
+            draw.line([(px2-12,py2),(px2+12,py2)], fill=(180,60,60,200), width=2)
+            draw.line([(px2,py2-12),(px2,py2+12)], fill=(180,60,60,200), width=2)
+            st.image(prev, caption=f"Live preview — Page {page}", use_column_width=True)
         except Exception as e:
-            st.error(f"Page render error: {e}")
-            page_ok = False
+            st.warning(f"Preview unavailable: {e}")
 
-        if page_ok:
-            # Pre-render text preview as transparent PNG
-            try:
-                fp = ImageFont.truetype(font_path, font_size_a * 3)
-                dummy = Image.new("RGBA", (1,1))
-                bb = ImageDraw.Draw(dummy).textbbox((0,0), annot_text, font=fp)
-                tw = max(1, bb[2]-bb[0]+20)
-                th = max(1, bb[3]-bb[1]+20)
-                ti = Image.new("RGBA", (tw, th), (255,255,255,0))
-                ch2 = color_a.lstrip("#")
-                cr2,cg2,cb2 = int(ch2[0:2],16),int(ch2[2:4],16),int(ch2[4:6],16)
-                ImageDraw.Draw(ti).text((10,10), annot_text, font=fp,
-                                         fill=(cr2,cg2,cb2,255))
-                tbuf = io.BytesIO(); ti.save(tbuf,"PNG"); tbuf.seek(0)
-                txt_b64 = base64.b64encode(tbuf.getvalue()).decode()
-                td_w = max(1, tw//3)
-                td_h = max(1, th//3)
-            except Exception:
-                txt_b64 = ""
-                td_w, td_h = 120, 30
-
-            # Canvas height proportional to A4/letter
-            canvas_h = min(900, int(700 * prev_h / prev_w))
-
-            # The HTML canvas — click sends coords via query param trick
-            canvas_html = f"""<!DOCTYPE html><html><head>
-<style>
-*{{margin:0;padding:0;box-sizing:border-box;}}
-body{{background:#f7f3ee;}}
-#wrap{{position:relative;display:inline-block;cursor:crosshair;
-       border:1px solid #d5ccc4;box-shadow:0 2px 16px rgba(0,0,0,0.1);
-       background:#fff;user-select:none;}}
-#pageImg{{display:block;width:100%;}}
-#cvs{{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;}}
-#tip{{position:absolute;background:rgba(28,25,23,0.82);color:#f7f3ee;
-      padding:3px 8px;font-size:10px;font-family:sans-serif;border-radius:2px;
-      pointer-events:none;display:none;white-space:nowrap;}}
-#info{{margin-top:6px;font-size:11px;color:#6b5f55;font-family:sans-serif;
-       min-height:18px;}}
-</style></head><body>
-<div id="wrap">
-  <img id="pageImg" src="data:image/png;base64,{pg_b64}" draggable="false"/>
-  <canvas id="cvs"></canvas>
-  <div id="tip">📝 {annot_text[:28]}{'...' if len(annot_text)>28 else ''}</div>
-</div>
-<div id="info">👆 Click anywhere on the page to set text position</div>
-<script>
-const wrap=document.getElementById('wrap');
-const img=document.getElementById('pageImg');
-const cvs=document.getElementById('cvs');
-const ctx=cvs.getContext('2d');
-const tip=document.getElementById('tip');
-const info=document.getElementById('info');
-const TXT_W={td_w}, TXT_H={td_h};
-const NAT_W={prev_w}, NAT_H={prev_h};
-const txtB64="{txt_b64}";
-let txtImg=new Image();
-if(txtB64){{txtImg.src='data:image/png;base64,'+txtB64;}}
-let placed=false, cx=0, cy=0;
-
-function sync(){{
-  cvs.width=img.offsetWidth; cvs.height=img.offsetHeight;
-  cvs.style.width=img.offsetWidth+'px'; cvs.style.height=img.offsetHeight+'px';
-  if(placed) draw();
-}}
-img.onload=sync;
-window.addEventListener('resize',sync);
-setTimeout(sync,80);
-
-wrap.addEventListener('mousemove',e=>{{
-  const r=wrap.getBoundingClientRect();
-  const mx=e.clientX-r.left, my=e.clientY-r.top;
-  tip.style.display='block';
-  tip.style.left=(mx+14)+'px';
-  tip.style.top=(my-22)+'px';
-}});
-wrap.addEventListener('mouseleave',()=>{{tip.style.display='none';}});
-
-wrap.addEventListener('click',e=>{{
-  const r=wrap.getBoundingClientRect();
-  cx=e.clientX-r.left; cy=e.clientY-r.top;
-  placed=true; draw();
-  const pctX=Math.round(cx/img.offsetWidth*100);
-  const pctY=Math.round(cy/img.offsetHeight*100);
-  info.innerHTML='<b style="color:#1c1917">✓ Position set: '+pctX+'% across, '+pctY+'% down</b> — now click <b>Add to Document</b> below';
-  // Send to Streamlit
-  window.parent.postMessage({{
-    isStreamlitMessage:true,
-    type:'streamlit:setComponentValue',
-    value: pctX+','+pctY
-  }},'*');
-}});
-
-function draw(){{
-  sync();
-  ctx.clearRect(0,0,cvs.width,cvs.height);
-  // Crosshair
-  ctx.strokeStyle='#8b5e52'; ctx.lineWidth=1.5; ctx.setLineDash([5,3]);
-  ctx.beginPath();
-  ctx.moveTo(cx-16,cy); ctx.lineTo(cx+16,cy);
-  ctx.moveTo(cx,cy-16); ctx.lineTo(cx,cy+16);
-  ctx.stroke(); ctx.setLineDash([]);
-  // Text preview image
-  if(txtB64&&txtImg.complete&&txtImg.naturalWidth>0){{
-    ctx.globalAlpha=0.9;
-    ctx.drawImage(txtImg,cx,cy-TXT_H/2,TXT_W,TXT_H);
-    ctx.globalAlpha=1;
-    ctx.strokeStyle='#8b5e52'; ctx.lineWidth=1; ctx.setLineDash([3,2]);
-    ctx.strokeRect(cx-1,cy-TXT_H/2-1,TXT_W+2,TXT_H+2);
-    ctx.setLineDash([]);
-  }}
-}}
-</script>
-</body></html>"""
-
-            # Render canvas — capture returned value as click coords
-            click_val = components.html(canvas_html, height=canvas_h + 40, scrolling=False)
-
-            # ── Position inputs (editable, also updated by click) ─
-            st.markdown("---")
-            st.markdown("##### Position")
-            pc1, pc2 = st.columns(2)
-            with pc1:
-                x_pct = st.number_input("X — horizontal (%)", 0, 99,
-                                         st.session_state.at_click_x,
-                                         help="0 = left edge, 100 = right edge",
-                                         key="at_xpct")
-            with pc2:
-                y_pct = st.number_input("Y — vertical (%)", 0, 99,
-                                         st.session_state.at_click_y,
-                                         help="0 = top, 100 = bottom",
-                                         key="at_ypct")
-
-            # ── Add annotation button ─────────────────────────────
-            if st.button("＋ Add to Document", use_container_width=True, key="at_add_btn"):
-                st.session_state.at_annotations.append({
-                    "text":    annot_text,
-                    "font":    font_path,
-                    "fname":   font_name,
-                    "size":    int(font_size_a),
-                    "color":   color_a,
-                    "opacity": 1.0,
-                    "page":    int(page_num),
-                    "x_pct":  x_pct,
-                    "y_pct":  y_pct,
+        st.markdown("#### Step 3 — Add to queue")
+        col_add, col_space = st.columns([1,2])
+        with col_add:
+            if st.button("＋ Add Text to Document", use_container_width=True, key="at_add"):
+                st.session_state.at_queue.append({
+                    "text":  text,
+                    "font":  FONTS[font_name],
+                    "fname": font_name,
+                    "size":  int(size),
+                    "color": color,
+                    "page":  int(page),
+                    "x_pct": x_pct,
+                    "y_pct": y_pct,
                 })
-                st.success(f"Added — page {page_num}, position ({x_pct}%, {y_pct}%)")
+                st.success(f"Added on page {page} at ({x_pct}%, {y_pct}%)")
 
-            # ── Queued annotations ────────────────────────────────
-            anns = st.session_state.at_annotations
-            if anns:
-                st.markdown(f"---")
-                st.markdown(f"**{len(anns)} text annotation(s) ready to apply:**")
-                for i, ann in enumerate(anns):
-                    col_ann, col_del = st.columns([5,1])
-                    with col_ann:
-                        st.markdown(
-                            f'<div class="result-card">'
-                            f'<div class="fname">"{ann["text"][:60]}"</div>'
-                            f'<div class="fmeta">'
-                            f'Page {ann["page"]} &nbsp;·&nbsp; {ann["fname"]} &nbsp;·&nbsp; '
-                            f'{ann["size"]}pt &nbsp;·&nbsp; '
-                            f'({ann["x_pct"]}%, {ann["y_pct"]}%)'
-                            f'</div></div>',
-                            unsafe_allow_html=True)
-                    with col_del:
-                        if st.button("✕", key=f"at_del_{i}", help="Remove"):
-                            st.session_state.at_annotations.pop(i)
-                            st.rerun()
-
-                bapply, bclear = st.columns(2)
-                with bclear:
-                    if st.button("🗑 Clear all", use_container_width=True, key="at_clear"):
-                        st.session_state.at_annotations = []
+        # Queue display
+        if st.session_state.at_queue:
+            n = len(st.session_state.at_queue)
+            st.markdown(f"---\n**{n} annotation(s) queued:**")
+            for i, ann in enumerate(st.session_state.at_queue):
+                ca, cb2 = st.columns([5,1])
+                with ca:
+                    st.markdown(
+                        f'<div class="result-card">'
+                        f'<div class="fname">"{ann["text"][:50]}"</div>'
+                        f'<div class="fmeta">Page {ann["page"]} · {ann["fname"]} · '
+                        f'{ann["size"]}pt · ({ann["x_pct"]}%, {ann["y_pct"]}%)</div>'
+                        f'</div>', unsafe_allow_html=True)
+                with cb2:
+                    if st.button("✕", key=f"del_{i}"):
+                        st.session_state.at_queue.pop(i)
                         st.rerun()
-                with bapply:
-                    if st.button("✓ Apply & Download PDF", use_container_width=True,
-                                  key="at_apply"):
-                        with st.spinner("Embedding text into PDF…"):
-                            try:
-                                from reportlab.lib.utils import ImageReader
-                                result_bytes = pdf_bytes
-                                for ann in st.session_state.at_annotations:
-                                    fp2 = ImageFont.truetype(ann["font"], ann["size"]*3)
-                                    dummy2 = Image.new("RGBA",(1,1))
-                                    bb2 = ImageDraw.Draw(dummy2).textbbox((0,0), ann["text"], font=fp2)
-                                    tw2 = max(1, bb2[2]-bb2[0]+20)
-                                    th2 = max(1, bb2[3]-bb2[1]+20)
-                                    ti2 = Image.new("RGBA",(tw2,th2),(255,255,255,0))
-                                    ch3 = ann["color"].lstrip("#")
-                                    cr3,cg3,cb3 = int(ch3[0:2],16),int(ch3[2:4],16),int(ch3[4:6],16)
-                                    ImageDraw.Draw(ti2).text((10,10), ann["text"], font=fp2,
-                                                              fill=(cr3,cg3,cb3,255))
-                                    r_t = PdfReader(io.BytesIO(result_bytes))
-                                    pg_t = r_t.pages[ann["page"]-1]
-                                    pdf_w3 = float(pg_t.mediabox.width)
-                                    pdf_h3 = float(pg_t.mediabox.height)
-                                    x3 = (ann["x_pct"]/100)*pdf_w3
-                                    y3 = pdf_h3 - (ann["y_pct"]/100)*pdf_h3 - (th2/3)
-                                    ib3 = io.BytesIO(); ti2.save(ib3,"PNG"); ib3.seek(0)
-                                    ob3 = io.BytesIO()
-                                    oc3 = rl_canvas.Canvas(ob3, pagesize=(pdf_w3,pdf_h3))
-                                    oc3.drawImage(ImageReader(ib3), x3, y3,
-                                                   width=tw2/3, height=th2/3, mask="auto")
-                                    oc3.save()
-                                    ov3 = PdfReader(io.BytesIO(ob3.getvalue())).pages[0]
-                                    rd3 = PdfReader(io.BytesIO(result_bytes))
-                                    wt3 = PdfWriter()
-                                    for ii3, pg3 in enumerate(rd3.pages):
-                                        if ii3 == ann["page"]-1:
-                                            pg3.merge_page(ov3)
-                                        wt3.add_page(pg3)
-                                    ob4 = io.BytesIO(); wt3.write(ob4)
-                                    result_bytes = ob4.getvalue()
 
-                                st.success(f"✅ {len(st.session_state.at_annotations)} annotation(s) embedded!")
-                                if f:
-                                    out_name = os.path.splitext(f.name)[0] + "_annotated.pdf"
-                                else:
-                                    out_name = "annotated.pdf"
-                                st.download_button("⬇ Download PDF",
-                                    result_bytes, out_name, "application/pdf",
-                                    key="at_download")
-                                st.session_state.at_annotations = []
-                            except Exception as e:
-                                st.error(f"❌ {e}")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🗑 Clear all", use_container_width=True, key="at_clear"):
+                    st.session_state.at_queue = []
+                    st.rerun()
+            with col2:
+                if st.button("✓ Apply & Download", use_container_width=True, key="at_apply"):
+                    with st.spinner("Embedding text…"):
+                        try:
+                            from PIL import ImageFont, ImageDraw
+                            from reportlab.lib.utils import ImageReader
+                            result = pdf_bytes
+                            for ann in st.session_state.at_queue:
+                                fp2  = ImageFont.truetype(ann["font"], ann["size"]*3)
+                                dummy = Image.new("RGBA",(1,1))
+                                bb   = ImageDraw.Draw(dummy).textbbox((0,0),ann["text"],font=fp2)
+                                tw   = max(1, bb[2]-bb[0]+20)
+                                th   = max(1, bb[3]-bb[1]+20)
+                                ti   = Image.new("RGBA",(tw,th),(255,255,255,0))
+                                ch3  = ann["color"].lstrip("#")
+                                cr3,cg3,cb3 = int(ch3[0:2],16),int(ch3[2:4],16),int(ch3[4:6],16)
+                                ImageDraw.Draw(ti).text((10,10),ann["text"],font=fp2,
+                                                         fill=(cr3,cg3,cb3,255))
+                                r_t  = PdfReader(io.BytesIO(result))
+                                pg_t = r_t.pages[ann["page"]-1]
+                                pw3  = float(pg_t.mediabox.width)
+                                ph3  = float(pg_t.mediabox.height)
+                                x3   = (ann["x_pct"]/100)*pw3
+                                y3   = ph3-(ann["y_pct"]/100)*ph3-(th/3)
+                                ib   = io.BytesIO(); ti.save(ib,"PNG"); ib.seek(0)
+                                ob   = io.BytesIO()
+                                oc   = rl_canvas.Canvas(ob, pagesize=(pw3,ph3))
+                                oc.drawImage(ImageReader(ib),x3,y3,width=tw/3,height=th/3,mask="auto")
+                                oc.save()
+                                ov   = PdfReader(io.BytesIO(ob.getvalue())).pages[0]
+                                rd   = PdfReader(io.BytesIO(result))
+                                wt   = PdfWriter()
+                                for ii,pg2 in enumerate(rd.pages):
+                                    if ii==ann["page"]-1: pg2.merge_page(ov)
+                                    wt.add_page(pg2)
+                                ob2  = io.BytesIO(); wt.write(ob2)
+                                result = ob2.getvalue()
+
+                            name = f.name if f else "annotated.pdf"
+                            out_name = os.path.splitext(name)[0]+"_annotated.pdf"
+                            st.success(f"✅ {len(st.session_state.at_queue)} annotation(s) applied!")
+                            st.download_button("⬇ Download PDF", result,
+                                                out_name, "application/pdf", key="at_dl")
+                            st.session_state.at_queue = []
+                        except Exception as e:
+                            st.error(f"❌ {e}")
 
 # ── Redact ────────────────────────────────────────────────────────
 elif selected_tool == "Redact":
@@ -1284,3 +1140,166 @@ elif selected_tool == "Excel → PDF":
                 if r["ok"]:
                     st.download_button(f"⬇ Download {r['out']}", r["bytes"], r["out"],
                                         "application/pdf", key=f"x2p_{r['out']}")
+
+# ── PDF → Excel ───────────────────────────────────────────────────
+elif selected_tool == "PDF → Excel":
+    f = st.file_uploader("Upload PDF", type=["pdf"], key="pdf2xl")
+    if f:
+        pdf_bytes = f.read()
+        st.info("Tables detected in the PDF will be extracted as Excel sheets. Text paragraphs go to a 'Text' sheet.")
+        if st.button("Convert to Excel", use_container_width=True, key="pdf2xl_btn"):
+            with st.spinner("Extracting…"):
+                try:
+                    import openpyxl
+                    from openpyxl.styles import Font, PatternFill, Alignment
+                    wb = openpyxl.Workbook()
+                    text_ws = wb.active
+                    text_ws.title = "Text"
+                    text_row = 1
+
+                    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                        for p_num, page in enumerate(pdf.pages, 1):
+                            # Tables → individual sheets
+                            tables = page.extract_tables()
+                            for t_idx, table in enumerate(tables):
+                                ws = wb.create_sheet(f"Page{p_num}_Table{t_idx+1}")
+                                for r_idx, row in enumerate(table):
+                                    for c_idx, cell in enumerate(row):
+                                        c = ws.cell(r_idx+1, c_idx+1, cell or "")
+                                        if r_idx == 0:
+                                            c.font = Font(bold=True)
+                                            c.fill = PatternFill("solid", fgColor="E8E0D5")
+
+                            # Text → Text sheet
+                            raw = page.extract_text()
+                            if raw:
+                                text_ws.cell(text_row, 1, f"— Page {p_num} —").font = Font(bold=True, color="8B5E52")
+                                text_row += 1
+                                for line in raw.splitlines():
+                                    if line.strip():
+                                        text_ws.cell(text_row, 1, line.strip())
+                                        text_row += 1
+                                text_row += 1
+
+                    text_ws.column_dimensions["A"].width = 80
+                    out = io.BytesIO(); wb.save(out)
+                    out_name = os.path.splitext(f.name)[0]+".xlsx"
+                    st.success("✅ Converted!")
+                    st.download_button("⬇ Download Excel", out.getvalue(),
+                                        out_name, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                        key="pdf2xl_dl")
+                except Exception as e:
+                    st.error(f"❌ {e}")
+
+# ── PDF → CSV ─────────────────────────────────────────────────────
+elif selected_tool == "PDF → CSV":
+    f = st.file_uploader("Upload PDF", type=["pdf"], key="pdf2csv")
+    if f:
+        pdf_bytes = f.read()
+        st.info("All tables from the PDF will be combined into one CSV file.")
+        if st.button("Convert to CSV", use_container_width=True, key="pdf2csv_btn"):
+            with st.spinner("Extracting tables…"):
+                try:
+                    import csv as csv_mod
+                    rows_out = []
+                    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                        for p_num, page in enumerate(pdf.pages, 1):
+                            tables = page.extract_tables()
+                            for table in tables:
+                                if rows_out:
+                                    rows_out.append([])  # blank row between tables
+                                rows_out.extend([[c or "" for c in row] for row in table])
+
+                    if not rows_out:
+                        st.warning("No tables found. Falling back to plain text extraction.")
+                        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                            for page in pdf.pages:
+                                raw = page.extract_text()
+                                if raw:
+                                    for line in raw.splitlines():
+                                        rows_out.append([line])
+
+                    out = io.StringIO()
+                    csv_mod.writer(out).writerows(rows_out)
+                    out_name = os.path.splitext(f.name)[0]+".csv"
+                    st.success(f"✅ {len(rows_out)} rows extracted!")
+                    st.download_button("⬇ Download CSV", out.getvalue().encode(),
+                                        out_name, "text/csv", key="pdf2csv_dl")
+                except Exception as e:
+                    st.error(f"❌ {e}")
+
+# ── PDF → Images ─────────────────────────────────────────────────
+elif selected_tool == "PDF → Images":
+    f = st.file_uploader("Upload PDF", type=["pdf"], key="pdf2img")
+    if f:
+        pdf_bytes = f.read()
+        info = get_pdf_info(pdf_bytes)
+        col1, col2, col3 = st.columns(3)
+        with col1: dpi = st.select_slider("Quality (DPI)", [72,100,150,200,300], 150, key="pdf2img_dpi")
+        with col2: fmt = st.selectbox("Format", ["PNG","JPEG","WEBP"], key="pdf2img_fmt")
+        with col3: st.metric("Pages", info["pages"])
+
+        if st.button("Convert to Images", use_container_width=True, key="pdf2img_btn"):
+            with st.spinner(f"Rendering {info['pages']} pages at {dpi} DPI…"):
+                try:
+                    imgs = convert_from_bytes(pdf_bytes, dpi=dpi)
+                    zb = io.BytesIO()
+                    with zipfile.ZipFile(zb,"w",zipfile.ZIP_DEFLATED) as zf:
+                        for i, img in enumerate(imgs):
+                            ib = io.BytesIO()
+                            img.save(ib, fmt)
+                            zf.writestr(f"page_{i+1:03d}.{fmt.lower()}", ib.getvalue())
+
+                    st.success(f"✅ {len(imgs)} pages converted!")
+                    st.download_button("⬇ Download ZIP", zb.getvalue(),
+                                        os.path.splitext(f.name)[0]+"_images.zip",
+                                        "application/zip", key="pdf2img_dl")
+
+                    # Show thumbnails
+                    st.markdown("**Preview:**")
+                    thumb_cols = st.columns(min(4, len(imgs)))
+                    for i, img in enumerate(imgs[:4]):
+                        with thumb_cols[i]:
+                            st.image(img, caption=f"Page {i+1}", use_column_width=True)
+                except Exception as e:
+                    st.error(f"❌ {e}")
+
+# ── PDF → Text ────────────────────────────────────────────────────
+elif selected_tool == "PDF → Text":
+    f = st.file_uploader("Upload PDF", type=["pdf"], key="pdf2txt")
+    if f:
+        pdf_bytes = f.read()
+        info = get_pdf_info(pdf_bytes)
+        col1, col2 = st.columns(2)
+        with col1: ocr_on = st.checkbox("OCR for scanned PDFs", True, key="pdf2txt_ocr")
+        with col2: page_breaks = st.checkbox("Add page separators", True, key="pdf2txt_pb")
+
+        if st.button("Extract Text", use_container_width=True, key="pdf2txt_btn"):
+            with st.spinner("Extracting text…"):
+                try:
+                    all_text = []
+                    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                        for p_num, page in enumerate(pdf.pages, 1):
+                            raw = page.extract_text() or ""
+                            if not raw.strip() and ocr_on:
+                                try:
+                                    import pytesseract
+                                    imgs_ocr = convert_from_bytes(pdf_bytes, dpi=150,
+                                                                   first_page=p_num, last_page=p_num)
+                                    raw = pytesseract.image_to_string(imgs_ocr[0])
+                                except Exception:
+                                    pass
+                            if page_breaks:
+                                sep = "─"*60
+                                all_text.append(f"\n{sep}\nPage {p_num}\n{sep}\n")
+                            all_text.append(raw)
+
+                    full_text = "\n".join(all_text)
+                    st.success(f"✅ {len(full_text):,} characters extracted!")
+                    st.text_area("Extracted text (preview)", full_text[:3000]+
+                                  ("…" if len(full_text)>3000 else ""), height=300)
+                    out_name = os.path.splitext(f.name)[0]+".txt"
+                    st.download_button("⬇ Download .txt", full_text.encode("utf-8"),
+                                        out_name, "text/plain", key="pdf2txt_dl")
+                except Exception as e:
+                    st.error(f"❌ {e}")
