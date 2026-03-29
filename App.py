@@ -1,3 +1,4 @@
+
 import io
 import re
 import os
@@ -1237,64 +1238,74 @@ elif selected_tool == "PDF → Images":
 
         col1, col2, col3 = st.columns(3)
         with col1:
-            dpi = st.select_slider("Quality (DPI)", [72, 100, 150], 100, key="pdf2img_dpi")
+            dpi = st.select_slider("Quality (DPI)", [72, 100, 120], 72, key="pdf2img_dpi")
         with col2:
-            fmt = st.selectbox("Format", ["PNG", "JPEG", "WEBP"], key="pdf2img_fmt")
+            fmt = st.selectbox("Format", ["JPEG", "PNG"], key="pdf2img_fmt")
         with col3:
             st.metric("Pages", info["pages"])
 
-        # Warn if large document
-        est_mb = info["pages"] * dpi * dpi * 3 / (1024**2) / 10
-        if info["pages"] > 10 or dpi > 100:
-            st.warning(f"⚠️ Large conversion ({info['pages']} pages at {dpi} DPI ≈ {est_mb:.0f} MB). "
-                       f"If the app crashes, try lower DPI or fewer pages.")
-
-        page_range = st.text_input("Page range (optional, e.g. 1-5 or leave blank for all)",
-                                    value="", key="pdf2img_range")
+        page_range = st.text_input(
+            "Page range (e.g. 1-5, or blank for all)",
+            value="1-5" if info["pages"] > 5 else "",
+            key="pdf2img_range"
+        )
+        st.caption("Free tier tip: convert max 5 pages at a time to avoid memory limits.")
 
         if st.button("Convert to Images", use_container_width=True, key="pdf2img_btn"):
-            # Parse page range
+            import subprocess, tempfile, glob
+
             try:
                 if page_range.strip():
                     parts = page_range.strip().split("-")
-                    p_start = int(parts[0])
-                    p_end   = int(parts[1]) if len(parts) > 1 else p_start
-                    p_start = max(1, p_start)
-                    p_end   = min(info["pages"], p_end)
+                    p_start = max(1, int(parts[0]))
+                    p_end   = min(info["pages"], int(parts[1]) if len(parts) > 1 else p_start)
                 else:
                     p_start, p_end = 1, info["pages"]
             except Exception:
                 st.error("Invalid page range. Use format like 1-5.")
                 p_start, p_end = 1, 1
 
-            total_pages = p_end - p_start + 1
-            bar = st.progress(0)
+            total = p_end - p_start + 1
+            bar    = st.progress(0)
             status = st.empty()
-            zb = io.BytesIO()
             previews = []
+            zb = io.BytesIO()
 
             try:
-                with zipfile.ZipFile(zb, "w", zipfile.ZIP_DEFLATED) as zf:
-                    # Render one page at a time to avoid RAM spike
-                    for page_num in range(p_start, p_end + 1):
-                        status.text(f"Rendering page {page_num} of {p_end}…")
-                        imgs = convert_from_bytes(
-                            pdf_bytes, dpi=dpi,
-                            first_page=page_num, last_page=page_num
-                        )
-                        img = imgs[0]
-                        ib = io.BytesIO()
-                        save_fmt = "JPEG" if fmt == "JPEG" else fmt
-                        img.save(ib, save_fmt, quality=85 if fmt=="JPEG" else None)
-                        zf.writestr(f"page_{page_num:03d}.{fmt.lower()}", ib.getvalue())
-                        if len(previews) < 4:
-                            previews.append((page_num, img.copy()))
-                        del img, imgs  # free memory immediately
-                        bar.progress((page_num - p_start + 1) / total_pages)
+                with tempfile.TemporaryDirectory() as tmp:
+                    pdf_path = os.path.join(tmp, "input.pdf")
+                    with open(pdf_path, "wb") as fout:
+                        fout.write(pdf_bytes)
+
+                    with zipfile.ZipFile(zb, "w", zipfile.ZIP_DEFLATED) as zf:
+                        for page_num in range(p_start, p_end + 1):
+                            status.text(f"Rendering page {page_num}/{p_end}…")
+                            out_prefix = os.path.join(tmp, f"p{page_num:03d}")
+                            flag = "-jpeg" if fmt == "JPEG" else "-png"
+                            subprocess.run(
+                                ["pdftoppm", "-r", str(dpi), flag,
+                                 "-f", str(page_num), "-l", str(page_num),
+                                 pdf_path, out_prefix],
+                                capture_output=True, timeout=60
+                            )
+                            # Find output file
+                            matches = glob.glob(out_prefix + "*")
+                            if matches:
+                                img_path = matches[0]
+                                ext = "jpg" if fmt == "JPEG" else "png"
+                                with open(img_path, "rb") as img_f:
+                                    img_bytes = img_f.read()
+                                zf.writestr(f"page_{page_num:03d}.{ext}", img_bytes)
+                                if len(previews) < 3:
+                                    from PIL import Image as PILImg
+                                    previews.append((page_num,
+                                        PILImg.open(io.BytesIO(img_bytes)).copy()))
+                                os.remove(img_path)
+                            bar.progress((page_num - p_start + 1) / total)
 
                 bar.empty()
                 status.empty()
-                st.success(f"✅ {total_pages} page(s) converted!")
+                st.success(f"✅ {total} page(s) converted!")
                 st.download_button(
                     "⬇ Download ZIP", zb.getvalue(),
                     os.path.splitext(f.name)[0] + "_images.zip",
@@ -1302,15 +1313,15 @@ elif selected_tool == "PDF → Images":
                 )
                 if previews:
                     st.markdown("**Preview:**")
-                    thumb_cols = st.columns(len(previews))
-                    for col, (pnum, img) in zip(thumb_cols, previews):
+                    cols = st.columns(len(previews))
+                    for col, (pnum, img) in zip(cols, previews):
                         with col:
                             st.image(img, caption=f"Page {pnum}", use_column_width=True)
 
             except Exception as e:
                 bar.empty()
                 status.empty()
-                st.error(f"❌ Conversion failed: {e}")
+                st.error(f"❌ {e}")
 
 # ── PDF → Text ────────────────────────────────────────────────────
 elif selected_tool == "PDF → Text":
