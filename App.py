@@ -33,7 +33,7 @@ html, body, [class*="css"] { font-family: 'Jost', sans-serif !important; }
 .stApp { background-color: #f7f3ee !important; }
 
 /* ── Hero ── */
-.hero { text-align:center; padding:2.5rem 1rem 1.5rem; border-bottom:1px solid #e2d9ce; margin-bottom:0; }
+.hero { text-align:center; padding:2.5rem 1rem 1.2rem; margin-bottom:0; }
 .hero-eyebrow { font-size:0.65rem; font-weight:500; letter-spacing:0.28em; text-transform:uppercase; color:#a89880; margin-bottom:0.6rem; }
 .hero h1 { font-family:'Cormorant Garamond',serif !important; font-size:3rem !important; font-weight:300 !important; color:#1c1917 !important; letter-spacing:-0.02em !important; margin-bottom:0.4rem !important; }
 .hero h1 em { font-style:italic; color:#8b5e52; }
@@ -468,6 +468,14 @@ TOOLS = [
     ("📊", "Excel → PDF",      "Spreadsheets to PDF"),
 ]
 
+st.markdown("""
+<div class="hero">
+    <div class="hero-eyebrow">Professional Document Tools</div>
+    <h1>PDF <em>Studio</em></h1>
+    <div class="hero-sub">Convert &nbsp;&middot;&nbsp; Merge &nbsp;&middot;&nbsp; Split &nbsp;&middot;&nbsp; Watermark &nbsp;&middot;&nbsp; Compress &nbsp;&middot;&nbsp; Protect &nbsp;&middot;&nbsp; Annotate</div>
+</div>
+""", unsafe_allow_html=True)
+
 # ── Tool navigation ──────────────────────────────────────────────
 TOOL_GROUPS = {
     "📤  PDF to...":  ["PDF → Word", "PDF → Excel", "PDF → CSV",
@@ -501,14 +509,6 @@ st.markdown("---")
 if "selected_tool" not in st.session_state:
     st.session_state.selected_tool = TOOLS[0][1]
 selected_tool = st.session_state.selected_tool
-
-st.markdown("""
-<div class="hero">
-    <div class="hero-eyebrow">Professional Document Tools</div>
-    <h1>PDF <em>Studio</em></h1>
-    <div class="hero-sub">Convert &nbsp;&middot;&nbsp; Merge &nbsp;&middot;&nbsp; Split &nbsp;&middot;&nbsp; Watermark &nbsp;&middot;&nbsp; Compress &nbsp;&middot;&nbsp; Protect &nbsp;&middot;&nbsp; Annotate</div>
-</div>
-""", unsafe_allow_html=True)
 
 
 icon = [t[0] for t in TOOLS if t[1]==selected_tool][0]
