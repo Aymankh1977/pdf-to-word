@@ -1,716 +1,1286 @@
-import streamlit as st
+import io
+import re
 import os
-import base64
-import json
-import hashlib
-import datetime
-from io import BytesIO
+import zipfile
+import streamlit as st
+import pdfplumber
+import pikepdf
+from pypdf import PdfReader, PdfWriter
+from pdf2image import convert_from_bytes
+from PIL import Image
 from docx import Document
-from docx.shared import Pt, RGBColor
+from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from dotenv import load_dotenv
-from anthropic import Anthropic, NotFoundError
-from pypdf import PdfReader
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
+from reportlab.pdfgen import canvas as rl_canvas
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.colors import Color, HexColor
 
-# ─── CONFIG ───────────────────────────────────────────────────────────────────
+# ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="HPE Expert Reviewer",
-    page_icon="🎓",
+    page_title="PDF Studio",
+    page_icon="📄",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="expanded"
 )
 
-# ─── API KEY ──────────────────────────────────────────────────────────────────
-try:
-    api_key = st.secrets.get("ANTHROPIC_API_KEY")
-except Exception:
-    api_key = None
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=Jost:wght@300;400;500;600&display=swap');
 
-if not api_key:
-    load_dotenv()
-    api_key = os.getenv("ANTHROPIC_API_KEY")
+html, body, [class*="css"] { font-family: 'Jost', sans-serif !important; }
+.stApp { background-color: #f7f3ee !important; }
 
-if not api_key:
-    st.error("🚨 ANTHROPIC_API_KEY is missing. Add it to `.env` or Streamlit Secrets.")
-    st.stop()
+/* ── Hero ── */
+.hero { text-align:center; padding:2.5rem 1rem 1.5rem; border-bottom:1px solid #e2d9ce; margin-bottom:0; }
+.hero-eyebrow { font-size:0.65rem; font-weight:500; letter-spacing:0.28em; text-transform:uppercase; color:#a89880; margin-bottom:0.6rem; }
+.hero h1 { font-family:'Cormorant Garamond',serif !important; font-size:3rem !important; font-weight:300 !important; color:#1c1917 !important; letter-spacing:-0.02em !important; margin-bottom:0.4rem !important; }
+.hero h1 em { font-style:italic; color:#8b5e52; }
+.hero-sub { font-size:0.76rem; color:#9a8e82; font-weight:300; letter-spacing:0.06em; }
 
-client = Anthropic(api_key=api_key)
+/* ── Navigation bar ── */
+.nav-wrap { background:#fff; border-bottom:2px solid #e2d9ce; padding:16px 8px 12px; margin-bottom:1.5rem; box-shadow:0 2px 8px rgba(28,25,23,0.05); }
+.nav-group-label {
+    font-size:0.6rem !important; font-weight:600 !important;
+    letter-spacing:0.22em !important; text-transform:uppercase !important;
+    color:#a89880 !important; margin:0 0 6px 0 !important;
+    padding:0 !important; line-height:1 !important;
+}
+/* Active nav button — override stButton for nav buttons only */
+[data-testid="stHorizontalBlock"] .stButton > button,
+.nav-wrap .stButton > button {
+    background: #f5ede8 !important;
+    color: #6b5f55 !important;
+    border: 1px solid #e2d9ce !important;
+    border-radius: 4px !important;
+    font-size: 0.72rem !important;
+    font-weight: 400 !important;
+    letter-spacing: 0.04em !important;
+    text-transform: none !important;
+    padding: 0.4rem 0.6rem !important;
+    margin-bottom: 4px !important;
+    text-align: left !important;
+    transition: all 0.15s !important;
+}
+[data-testid="stHorizontalBlock"] .stButton > button:hover,
+.nav-wrap .stButton > button:hover {
+    background: #ede0d8 !important;
+    color: #1c1917 !important;
+    border-color: #c4b0a6 !important;
+}
 
-# ─── MODELS ───────────────────────────────────────────────────────────────────
-PRIMARY_MODEL  = "claude-opus-4-5"
-FALLBACK_MODEL = "claude-sonnet-4-5"
-CHAT_MODEL     = "claude-haiku-4-5-20251001"
+/* ── Tool heading ── */
+.tool-heading { display:flex; align-items:baseline; gap:0.8rem; flex-wrap:wrap; margin-bottom:1.8rem; padding-bottom:1rem; border-bottom:1px solid #e2d9ce; }
+.tool-heading h2 { font-family:'Cormorant Garamond',serif !important; font-size:1.9rem !important; font-weight:400 !important; color:#1c1917 !important; margin:0 !important; }
+.tool-heading .tool-tag { font-size:0.65rem; font-weight:500; letter-spacing:0.14em; text-transform:uppercase; color:#a89880; background:#ede6dc; padding:3px 10px; border-radius:20px; }
 
-JOURNALS = [
-    # General HPE
-    "Medical Teacher",
-    "BMC Medical Education",
-    "Academic Medicine",
-    "Medical Education",
-    "JGME – Journal of Graduate Medical Education",
-    "Teaching and Learning in Medicine",
-    "Advances in Health Sciences Education",
-    # Dental Education
-    "Journal of Dental Education (JDE)",
-    "European Journal of Dental Education (EJDE)",
-    "Journal of Dental Research (JDR)",
-    "European Journal of Dental Education – Clinical Focus",
-    "Journal of Dentistry",
-    "Dental Education in Europe – ADEE Journal",
+/* ── File uploader ── */
+[data-testid="stFileUploader"] { background:#fff !important; border:1px solid #d5ccc4 !important; border-radius:3px !important; }
+
+/* ── Buttons ── */
+.stButton > button {
+    background:#1c1917 !important; color:#f7f3ee !important; border:none !important;
+    border-radius:2px !important; font-family:'Jost',sans-serif !important;
+    font-weight:500 !important; font-size:0.72rem !important;
+    letter-spacing:0.14em !important; text-transform:uppercase !important;
+    padding:0.65rem 2rem !important; transition:background 0.2s !important;
+}
+.stButton > button:hover { background:#3d3530 !important; }
+[data-testid="stDownloadButton"] > button {
+    background:transparent !important; color:#1c1917 !important;
+    border:1.5px solid #1c1917 !important; border-radius:2px !important;
+    font-family:'Jost',sans-serif !important; font-weight:500 !important;
+    font-size:0.72rem !important; letter-spacing:0.14em !important;
+    text-transform:uppercase !important; width:100% !important; transition:all 0.2s !important;
+}
+[data-testid="stDownloadButton"] > button:hover { background:#1c1917 !important; color:#f7f3ee !important; }
+
+/* ── Alerts ── */
+[data-testid="stInfo"]    { background:#ede6dc !important; border:none !important; border-left:3px solid #a89880 !important; border-radius:0 !important; }
+[data-testid="stSuccess"] { background:#e8ede6 !important; border:none !important; border-left:3px solid #6b8b5e !important; border-radius:0 !important; }
+[data-testid="stError"]   { background:#f0e6e6 !important; border:none !important; border-left:3px solid #8b5e5e !important; border-radius:0 !important; }
+
+/* ── Result card ── */
+.result-card { background:#fff; border:1px solid #e2d9ce; border-left:3px solid #8b5e52; padding:1rem 1.4rem; margin-bottom:0.6rem; border-radius:0 2px 2px 0; }
+.result-card .fname { font-weight:500; font-size:0.88rem; color:#1c1917; margin-bottom:3px; }
+.result-card .fmeta { font-size:0.76rem; color:#9a8e82; }
+
+/* ── Inputs ── */
+.stTextInput input, .stNumberInput input, .stTextArea textarea {
+    background:#fff !important; border:1px solid #d5ccc4 !important;
+    border-radius:2px !important; color:#1c1917 !important; font-family:'Jost',sans-serif !important;
+}
+.stTextInput input:focus, .stNumberInput input:focus, .stTextArea textarea:focus { border-color:#8b5e52 !important; }
+[data-baseweb="select"] > div { background:#fff !important; border:1px solid #d5ccc4 !important; border-radius:2px !important; }
+label[data-testid="stWidgetLabel"] p { font-size:0.75rem !important; font-weight:500 !important; letter-spacing:0.08em !important; text-transform:uppercase !important; color:#6b5f55 !important; }
+
+/* ── Progress ── */
+.stProgress > div > div { background:#8b5e52 !important; }
+hr { border-color:#e2d9ce !important; }
+.stCaption p { font-size:0.73rem !important; color:#a89880 !important; font-style:italic !important; }
+#MainMenu, footer, [data-testid="stToolbar"] { visibility:hidden !important; }
+</style>
+""", unsafe_allow_html=True)
+
+# ═══════════════════════════════════════════════════════════════════
+#  UTILITY FUNCTIONS
+# ═══════════════════════════════════════════════════════════════════
+
+def get_pdf_info(pdf_bytes):
+    r = PdfReader(io.BytesIO(pdf_bytes))
+    return {"pages": len(r.pages), "encrypted": r.is_encrypted}
+
+def pdf_page_previews(pdf_bytes, dpi=80, max_pages=20):
+    """Return list of PIL images for preview."""
+    try:
+        imgs = convert_from_bytes(pdf_bytes, dpi=dpi, first_page=1, last_page=max_pages)
+        return imgs
+    except Exception:
+        return []
+
+# ── 1. PDF → Word ─────────────────────────────────────────────────
+
+def clean_text(text):
+    if not text: return ""
+    text = text.replace('\xa0', ' ')
+    return re.sub(r'[ \t]{2,}', ' ', text).strip()
+
+def looks_like_heading(text, font_size=None, is_bold=False):
+    s = text.strip()
+    if not s: return 0
+    if s.isupper() and 3 <= len(s) <= 80: return 1
+    if is_bold and len(s) <= 80 and not s.endswith('.'): return 2
+    if font_size:
+        if font_size >= 18: return 1
+        if font_size >= 14: return 2
+        if font_size >= 12 and is_bold: return 3
+    return 0
+
+def set_table_border(table):
+    tbl = table._tbl
+    tblPr = tbl.tblPr if tbl.tblPr is not None else OxmlElement('w:tblPr')
+    tblBorders = OxmlElement('w:tblBorders')
+    for edge in ('top','left','bottom','right','insideH','insideV'):
+        b = OxmlElement(f'w:{edge}')
+        b.set(qn('w:val'),'single'); b.set(qn('w:sz'),'4')
+        b.set(qn('w:space'),'0'); b.set(qn('w:color'),'AAAAAA')
+        tblBorders.append(b)
+    tblPr.append(tblBorders)
+
+def add_table_to_doc(doc, table_data, font_size_pt=11):
+    rows = [r for r in table_data if any(c for c in r)]
+    if not rows: return
+    num_cols = max(len(r) for r in rows)
+    tbl = doc.add_table(rows=len(rows), cols=num_cols)
+    tbl.style = 'Table Grid'
+    for ri, row in enumerate(rows):
+        for ci in range(num_cols):
+            ct = row[ci] if ci < len(row) else ""
+            cell = tbl.cell(ri, ci)
+            cell.text = clean_text(ct or "")
+            for run in cell.paragraphs[0].runs:
+                run.font.size = Pt(font_size_pt - 1)
+                if ri == 0: run.bold = True
+            if ri == 0:
+                tcPr = cell._tc.get_or_add_tcPr()
+                shd = OxmlElement('w:shd')
+                shd.set(qn('w:val'),'clear'); shd.set(qn('w:color'),'auto'); shd.set(qn('w:fill'),'E8E8E8')
+                tcPr.append(shd)
+    set_table_border(tbl)
+    doc.add_paragraph()
+
+def extract_page_content(page):
+    content = []
+    tables = page.extract_tables()
+    try: table_bboxes = [t.bbox for t in page.find_tables()]
+    except: table_bboxes = []
+    try: image_bboxes = [(i['x0'],i['top'],i['x1'],i['bottom']) for i in page.images]
+    except: image_bboxes = []
+    words = page.extract_words(extra_attrs=["size","fontname"])
+    if not words:
+        raw = page.extract_text()
+        if raw:
+            for line in raw.splitlines():
+                line = clean_text(line)
+                if line: content.append({"type":"paragraph","text":line,"font_size":None,"bold":False})
+        for tbl in tables:
+            if tbl: content.append({"type":"table","data":tbl})
+        return content, image_bboxes
+    lines = {}
+    for w in words: lines.setdefault(round(w['top'],1),[]).append(w)
+    def in_r(y,bbs): return any(b[1]<=y<=b[3] for b in bbs)
+    prev_bottom = None
+    for top, lw in sorted(lines.items()):
+        if in_r(top,table_bboxes) or in_r(top,image_bboxes): continue
+        lw.sort(key=lambda w: w['x0'])
+        lt = clean_text(' '.join(w['text'] for w in lw))
+        if not lt: continue
+        sizes = [w.get('size',0) for w in lw if w.get('size')]
+        fs = max(sizes) if sizes else None
+        bold = any('Bold' in w.get('fontname','') for w in lw)
+        if prev_bottom and (top-prev_bottom)>12: content.append({"type":"blank"})
+        content.append({"type":"paragraph","text":lt,"font_size":fs,"bold":bold})
+        prev_bottom = top + lw[0].get('height',10)
+    for tbl in tables:
+        if tbl: content.append({"type":"table","data":tbl})
+    return content, image_bboxes
+
+def crop_img(page_img, bbox, pw, ph):
+    iw, ih = page_img.size
+    sx, sy = iw/pw, ih/ph
+    x0,y0,x1,y1 = int(bbox[0]*sx),int(bbox[1]*sy),int(bbox[2]*sx),int(bbox[3]*sy)
+    pad=4; x0,y0=max(0,x0-pad),max(0,y0-pad); x1,y1=min(iw,x1+pad),min(ih,y1+pad)
+    if x1<=x0 or y1<=y0: return None
+    return page_img.crop((x0,y0,x1,y1))
+
+def convert_pdf_to_docx(pdf_bytes, font_size=11, include_images=True, ocr_fallback=True, dpi=150):
+    doc = Document()
+    for s in doc.sections:
+        s.top_margin=s.bottom_margin=Inches(1)
+        s.left_margin=s.right_margin=Inches(1.2)
+    doc.styles['Normal'].font.name='Calibri'
+    doc.styles['Normal'].font.size=Pt(font_size)
+    page_images=[]
+    if include_images:
+        try: page_images=convert_from_bytes(pdf_bytes,dpi=dpi)
+        except: pass
+    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+        total=len(pdf.pages)
+        for pi, page in enumerate(pdf.pages):
+            content, image_bboxes = extract_page_content(page)
+            raw_text = page.extract_text() or ""
+            if not raw_text.strip() and ocr_fallback and page_images:
+                try:
+                    import pytesseract
+                    if pi < len(page_images):
+                        for line in pytesseract.image_to_string(page_images[pi]).splitlines():
+                            line=clean_text(line)
+                            if line: content.append({"type":"paragraph","text":line,"font_size":None,"bold":False})
+                except: pass
+            for item in content:
+                if item["type"]=="blank": continue
+                elif item["type"]=="paragraph":
+                    text=item["text"]
+                    level=looks_like_heading(text,item.get("font_size"),item.get("bold",False))
+                    if level in (1,2,3):
+                        h=doc.add_heading(text,level=level)
+                        h.runs[0].font.size=Pt(font_size+(6-level*2))
+                    else:
+                        p=doc.add_paragraph(text)
+                        for run in p.runs:
+                            run.font.size=Pt(font_size)
+                            if item.get("bold"): run.bold=True
+                elif item["type"]=="table":
+                    add_table_to_doc(doc,item["data"],font_size)
+            if include_images and page_images and pi<len(page_images):
+                pg_img=page_images[pi]; used=[]
+                for bbox in image_bboxes:
+                    w,h=bbox[2]-bbox[0],bbox[3]-bbox[1]
+                    if w<20 or h<20: continue
+                    if any(not(bbox[2]<u[0] or bbox[0]>u[2] or bbox[3]<u[1] or bbox[1]>u[3]) for u in used): continue
+                    used.append(bbox)
+                    cropped=crop_img(pg_img,bbox,page.width,page.height)
+                    if not cropped: continue
+                    ib=io.BytesIO(); cropped.save(ib,format='PNG'); ib.seek(0)
+                    iw2,ih2=cropped.size; mw=Inches(5)
+                    asp=ih2/iw2 if iw2>0 else 1; dw=min(mw,Inches(iw2/dpi))
+                    p=doc.add_paragraph(); p.alignment=WD_ALIGN_PARAGRAPH.CENTER
+                    p.add_run().add_picture(ib,width=dw); doc.add_paragraph()
+            if pi<total-1: doc.add_page_break()
+    out=io.BytesIO(); doc.save(out); return out.getvalue()
+
+# ── 2. Merge PDFs ─────────────────────────────────────────────────
+
+def merge_pdfs(pdf_list):
+    writer = PdfWriter()
+    for pdf_bytes in pdf_list:
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        for page in reader.pages:
+            writer.add_page(page)
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+# ── 3. Split PDF ──────────────────────────────────────────────────
+
+def split_pdf(pdf_bytes, ranges):
+    """ranges: list of (start, end) 1-indexed inclusive tuples"""
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    results = []
+    for start, end in ranges:
+        writer = PdfWriter()
+        for i in range(start-1, min(end, len(reader.pages))):
+            writer.add_page(reader.pages[i])
+        out = io.BytesIO()
+        writer.write(out)
+        results.append((f"pages_{start}_to_{end}.pdf", out.getvalue()))
+    return results
+
+# ── 4. Rotate pages ───────────────────────────────────────────────
+
+def rotate_pdf(pdf_bytes, angle, page_nums=None):
+    """angle: 90, 180, 270. page_nums: list of 1-indexed, or None for all."""
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    writer = PdfWriter()
+    for i, page in enumerate(reader.pages):
+        if page_nums is None or (i+1) in page_nums:
+            page.rotate(angle)
+        writer.add_page(page)
+    out = io.BytesIO(); writer.write(out); return out.getvalue()
+
+# ── 5. Watermark ──────────────────────────────────────────────────
+
+def add_watermark(pdf_bytes, text, opacity=0.25, font_size=60, color_hex="#cc3333", angle=45):
+    # Build watermark page
+    wm_buf = io.BytesIO()
+    c = rl_canvas.Canvas(wm_buf, pagesize=letter)
+    r = int(color_hex[1:3],16)/255
+    g = int(color_hex[3:5],16)/255
+    b = int(color_hex[5:7],16)/255
+    c.setFillColor(Color(r, g, b, alpha=opacity))
+    c.setFont("Helvetica-Bold", font_size)
+    c.saveState()
+    c.translate(letter[0]/2, letter[1]/2)
+    c.rotate(angle)
+    c.drawCentredString(0, 0, text)
+    c.restoreState()
+    c.save()
+    wm_page = PdfReader(io.BytesIO(wm_buf.getvalue())).pages[0]
+
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    writer = PdfWriter()
+    for page in reader.pages:
+        page.merge_page(wm_page)
+        writer.add_page(page)
+    out = io.BytesIO(); writer.write(out); return out.getvalue()
+
+# ── 6. Password protect / unlock ─────────────────────────────────
+
+def protect_pdf(pdf_bytes, user_password, owner_password=None):
+    writer = PdfWriter()
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    for page in reader.pages: writer.add_page(page)
+    writer.encrypt(user_password, owner_password or user_password)
+    out = io.BytesIO(); writer.write(out); return out.getvalue()
+
+def unlock_pdf(pdf_bytes, password):
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    if reader.is_encrypted:
+        reader.decrypt(password)
+    writer = PdfWriter()
+    for page in reader.pages: writer.add_page(page)
+    out = io.BytesIO(); writer.write(out); return out.getvalue()
+
+# ── 7. Compress ───────────────────────────────────────────────────
+
+def compress_pdf(pdf_bytes):
+    out = io.BytesIO()
+    with pikepdf.open(io.BytesIO(pdf_bytes)) as pk:
+        pk.save(out, compress_streams=True, recompress_flate=True)
+    return out.getvalue()
+
+# ── 8. Extract pages as images ────────────────────────────────────
+
+def extract_as_images(pdf_bytes, dpi=150, fmt="PNG"):
+    imgs = convert_from_bytes(pdf_bytes, dpi=dpi)
+    results = []
+    for i, img in enumerate(imgs):
+        buf = io.BytesIO()
+        img.save(buf, format=fmt)
+        results.append((f"page_{i+1}.{fmt.lower()}", buf.getvalue()))
+    return results
+
+# ── 9. Add text annotation ────────────────────────────────────────
+
+def add_text_annotation(pdf_bytes, text, page_num=1, x=100, y=100,
+                         font_size=14, color_hex="#cc0000"):
+    annot_buf = io.BytesIO()
+    c = rl_canvas.Canvas(annot_buf, pagesize=letter)
+    r2 = int(color_hex[1:3],16)/255
+    g2 = int(color_hex[3:5],16)/255
+    b2 = int(color_hex[5:7],16)/255
+    c.setFillColorRGB(r2, g2, b2)
+    c.setFont("Helvetica", font_size)
+    c.drawString(x, y, text)
+    c.save()
+    annot_page = PdfReader(io.BytesIO(annot_buf.getvalue())).pages[0]
+
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    writer = PdfWriter()
+    for i, page in enumerate(reader.pages):
+        if i+1 == page_num:
+            page.merge_page(annot_page)
+        writer.add_page(page)
+    out = io.BytesIO(); writer.write(out); return out.getvalue()
+
+# ── 10. Redact ────────────────────────────────────────────────────
+
+def redact_pdf(pdf_bytes, page_num=1, x=100, y=100, width=200, height=20):
+    """Cover region with black rectangle."""
+    redact_buf = io.BytesIO()
+    c = rl_canvas.Canvas(redact_buf, pagesize=letter)
+    c.setFillColorRGB(0, 0, 0)
+    c.rect(x, y, width, height, fill=1, stroke=0)
+    c.save()
+    redact_page = PdfReader(io.BytesIO(redact_buf.getvalue())).pages[0]
+
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    writer = PdfWriter()
+    for i, page in enumerate(reader.pages):
+        if i+1 == page_num:
+            page.merge_page(redact_page)
+        writer.add_page(page)
+    out = io.BytesIO(); writer.write(out); return out.getvalue()
+
+# ── 11. Reorder pages ─────────────────────────────────────────────
+
+def reorder_pages(pdf_bytes, new_order):
+    """new_order: list of 1-indexed page numbers in desired order."""
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    writer = PdfWriter()
+    for n in new_order:
+        if 1 <= n <= len(reader.pages):
+            writer.add_page(reader.pages[n-1])
+    out = io.BytesIO(); writer.write(out); return out.getvalue()
+
+# ═══════════════════════════════════════════════════════════════════
+#  UI
+# ═══════════════════════════════════════════════════════════════════
+
+TOOLS = [
+    ("📝", "PDF → Word",       "Convert to editable .docx"),
+    ("🔗", "Merge PDFs",       "Combine multiple PDFs"),
+    ("✂️",  "Split PDF",        "Extract page ranges"),
+    ("🔄", "Rotate Pages",     "Rotate any page"),
+    ("💧", "Watermark",        "Stamp text on pages"),
+    ("🗜️", "Compress",         "Reduce file size"),
+    ("🔒", "Protect / Unlock", "Password management"),
+    ("🖼️", "Extract Images",   "Save pages as PNG/JPG"),
+    ("✍️",  "Add Text",         "Annotate pages"),
+    ("⬛", "Redact",           "Black-out content"),
+    ("📋", "Reorder Pages",    "Drag pages into order"),
+    ("🖼️→📄", "Images → PDF",  "Convert images to PDF"),
+    ("📄→📄", "Word → PDF",    "Convert Word docs to PDF"),
+    ("📊→📄", "Excel → PDF",   "Convert spreadsheets to PDF"),
 ]
 
-REVIEW_CRITERIA = {
-    "research_question": "Research question clarity & PICO/SPIDER framing",
-    "methodology":       "Methodology rigor & reproducibility",
-    "consort_srqr":      "CONSORT / SRQR / COREQ guideline adherence",
-    "kirkpatrick":       "Kirkpatrick level outcomes achieved",
-    "citations":         "Citation currency, completeness & in-text accuracy",
-    "statistics":        "Statistical / qualitative data analysis soundness",
-    "ethics":            "Ethical considerations & positionality",
-    "golden_thread":     "Golden thread coherence (RQ → method → results → conclusion)",
+# ── Tool navigation ──────────────────────────────────────────────
+TOOL_GROUPS = {
+    "🔄  Convert": ["PDF → Word", "Images → PDF", "Word → PDF", "Excel → PDF"],
+    "✏️  Edit":    ["Add Text", "Redact", "Watermark", "Rotate Pages"],
+    "📂  Manage":  ["Merge PDFs", "Split PDF", "Reorder Pages",
+                    "Compress", "Protect / Unlock", "Extract Images"],
 }
 
-# ─── SESSION STATE ─────────────────────────────────────────────────────────────
-defaults = {
-    "consent_given":   False,
-    "pdf_base64":      None,
-    "pdf_name":        "",
-    "pdf_hash":        "",
-    "pdf_text":        "",
-    "report":          None,
-    "raw_report":      "",
-    "chat_history":    [],
-    "model_used":      "",
-    "session_start":   None,
-    "upload_count":    0,
-}
-for k, v in defaults.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
+# Build flat ordered list matching TOOLS order for display
+ALL_TOOL_NAMES = [t[1] for t in TOOLS]
 
-if st.session_state.session_start is None:
-    st.session_state.session_start = datetime.datetime.utcnow()
+# Nav bar using columns + buttons
+st.markdown('<div class="nav-wrap">', unsafe_allow_html=True)
+nav_cols = st.columns(len(TOOL_GROUPS))
+for col_idx, (group_label, items) in enumerate(TOOL_GROUPS.items()):
+    with nav_cols[col_idx]:
+        st.markdown(f'<p class="nav-group-label">{group_label}</p>', unsafe_allow_html=True)
+        for item in items:
+            icon = next((t[0] for t in TOOLS if t[1] == item), "")
+            is_active = st.session_state.get("selected_tool", TOOLS[0][1]) == item
+            btn_style = "nav-btn-active" if is_active else "nav-btn"
+            if st.button(f"{icon}  {item}", key=f"nav_{item}",
+                         use_container_width=True):
+                st.session_state.selected_tool = item
+                st.rerun()
+st.markdown('</div>', unsafe_allow_html=True)
+st.markdown("---")
 
-# ─── CONSENT GATE ─────────────────────────────────────────────────────────────
-if not st.session_state.consent_given:
-    st.markdown(
-        """
-        <div style="max-width:620px;margin:4rem auto;padding:2rem;
-             border:1px solid #e0ddd5;border-radius:12px;background:#fafaf7;">
-          <h2 style="margin-top:0">🎓 HPE Expert Reviewer</h2>
-          <h4 style="color:#555">Data &amp; Confidentiality Notice</h4>
-          <p>Before using this tool, please read and accept the following:</p>
-          <ul style="line-height:1.9">
-            <li>Uploaded manuscripts are transmitted to <strong>Anthropic's API</strong>
-                for AI analysis. Anthropic does <strong>not</strong> use API data to
-                train their models. See
-                <a href="https://www.anthropic.com/privacy" target="_blank">anthropic.com/privacy</a>.
-            </li>
-            <li>Documents are held <strong>in memory only</strong> for the duration of
-                your session. They are <strong>never written to disk</strong> or stored
-                by this application.</li>
-            <li>Your session is automatically cleared when you close the browser tab.</li>
-            <li><strong>Do not upload</strong> manuscripts containing identifiable patient
-                data, unpublished clinical trial results under embargo, or any material
-                covered by a confidentiality agreement that prohibits third-party
-                processing.</li>
-            <li>If your institution requires a Zero Data Retention (ZDR) agreement,
-                contact
-                <a href="https://www.anthropic.com/contact-sales" target="_blank">
-                Anthropic directly</a> before use.</li>
-          </ul>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    col1, col2, col3 = st.columns([1, 2, 1])
+if "selected_tool" not in st.session_state:
+    st.session_state.selected_tool = TOOLS[0][1]
+selected_tool = st.session_state.selected_tool
+
+st.markdown("""
+<div class="hero">
+    <div class="hero-eyebrow">Professional Document Tools</div>
+    <h1>PDF <em>Studio</em></h1>
+    <div class="hero-sub">Convert &nbsp;&middot;&nbsp; Merge &nbsp;&middot;&nbsp; Split &nbsp;&middot;&nbsp; Watermark &nbsp;&middot;&nbsp; Compress &nbsp;&middot;&nbsp; Protect &nbsp;&middot;&nbsp; Annotate</div>
+</div>
+""", unsafe_allow_html=True)
+
+
+icon = [t[0] for t in TOOLS if t[1]==selected_tool][0]
+desc = [t[2] for t in TOOLS if t[1]==selected_tool][0]
+st.markdown(f'''<div class="tool-heading">
+    <span class="tool-icon">{icon}</span>
+    <h2>{selected_tool}</h2>
+    <span class="tool-tag">{desc}</span>
+</div>''', unsafe_allow_html=True)
+
+# ── PDF → Word ────────────────────────────────────────────────────
+if selected_tool == "PDF → Word":
+    col1, col2 = st.columns([2,1])
+    with col1:
+        files = st.file_uploader("Upload PDF(s)", type=["pdf"], accept_multiple_files=True)
     with col2:
-        confirmed = st.checkbox(
-            "I have read and understood the data notice above, and I confirm "
-            "the manuscript I will upload does not contain restricted or "
-            "patient-identifiable data."
-        )
-        if st.button("✅ Accept & Continue", disabled=not confirmed, use_container_width=True):
-            st.session_state.consent_given = True
-            st.rerun()
-    st.stop()
-
-# ─── HELPERS ──────────────────────────────────────────────────────────────────
-def encode_pdf(uploaded_file) -> tuple[str, str, str]:
-    """Return (base64_string, plain_text_fallback, sha256_hash).
-    Raw bytes never stored — only the base64 encoding needed for the API."""
-    raw = uploaded_file.read()
-    b64 = base64.standard_b64encode(raw).decode("utf-8")
-    sha = hashlib.sha256(raw).hexdigest()
-    try:
-        reader = PdfReader(BytesIO(raw))
-        text = "\n".join(p.extract_text() or "" for p in reader.pages)
-    except Exception:
-        text = ""
-    return b64, text, sha
-
-
-def clear_session_data():
-    """Wipe all uploaded document data from session state."""
-    sensitive_keys = [
-        "pdf_base64", "pdf_name", "pdf_hash", "pdf_text",
-        "report", "raw_report", "chat_history", "model_used",
-    ]
-    for k in sensitive_keys:
-        st.session_state[k] = defaults[k]
-    st.session_state.upload_count = 0
-
-
-def build_system_prompt(journal: str) -> str:
-    return (
-        f"You are a Senior Editor and double-blind Peer Reviewer for '{journal}', "
-        "one of the most rigorous journals in Health Professions Education (HPE). "
-        "Your reviews are precise, evidence-based, and constructive. "
-        "You quote exact passages from the manuscript to substantiate every criticism. "
-        "You never fabricate content. "
-        "You apply CONSORT for RCTs, SRQR for qualitative research, COREQ for interviews/focus groups, "
-        "and always evaluate educational outcomes through Kirkpatrick's four-level framework. "
-        "You scrutinise the 'golden thread': the logical chain from research question through "
-        "methodology, results, and conclusion. "
-        "You identify citation gaps, outdated references, and in-text vs reference-list mismatches."
-    )
-
-
-def build_review_prompt(selected_criteria: list[str], journal: str) -> str:
-    criteria_block = "\n".join(
-        f"  {i+1}. {REVIEW_CRITERIA[c]}"
-        for i, c in enumerate(selected_criteria)
-    )
-    return f"""Perform a comprehensive peer review of this manuscript submitted to '{journal}'.
-
-SELECTED REVIEW CRITERIA:
-{criteria_block}
-
-Return ONLY a valid JSON object — no markdown fences, no preamble — with exactly this schema:
-
-{{
-  "verdict": "Accept | Minor Revisions | Major Revisions | Reject",
-  "overall_score": <integer 1-100>,
-  "executive_summary": "<2-3 sentence overall assessment>",
-  "scores": {{
-    "novelty": <1-10>,
-    "methodology": <1-10>,
-    "clarity": <1-10>,
-    "citations": <1-10>,
-    "ethics": <1-10>
-  }},
-  "strengths": ["<strength 1>", "<strength 2>", "..."],
-  "weaknesses": [
-    {{
-      "section": "Abstract|Introduction|Methods|Results|Discussion|Citations",
-      "issue": "<specific issue — quote the manuscript text to prove the flaw>",
-      "severity": "major|minor",
-      "suggestion": "<concrete fix>"
-    }}
-  ],
-  "section_comments": {{
-    "abstract": "<comment>",
-    "introduction": "<Does it identify the gap? Are citations current? Is the RQ explicit?>",
-    "methods": "<Reproducibility, guideline adherence, sample size justification>",
-    "results": "<Clarity, alignment with RQ, appropriate presentation>",
-    "discussion": "<Overstating findings? Kirkpatrick level? Golden thread maintained?>"
-  }},
-  "golden_thread": "<Paragraph assessing RQ → methodology → results → conclusion coherence>",
-  "kirkpatrick_level": {{
-    "level": <1|2|3|4>,
-    "justification": "<why this level>"
-  }},
-  "citation_audit": {{
-    "missing_key_references": ["<Author Year — why relevant>"],
-    "potentially_outdated": ["<citation — reason>"],
-    "mismatches": "<in-text vs reference list issues, or 'None identified'>"
-  }},
-  "actionable_recommendations": [
-    "<Numbered, specific action the authors must take>"
-  ],
-  "editor_note": "<Confidential note to the editor — not shared with authors>"
-}}"""
-
-
-def call_api_with_pdf(system: str, user_prompt: str, model: str) -> str:
-    response = client.messages.create(
-        model=model,
-        max_tokens=4096,
-        system=system,
-        messages=[{
-            "role": "user",
-            "content": [
-                {
-                    "type": "document",
-                    "source": {
-                        "type": "base64",
-                        "media_type": "application/pdf",
-                        "data": st.session_state.pdf_base64,
-                    },
-                },
-                {"type": "text", "text": user_prompt},
-            ],
-        }],
-    )
-    return response.content[0].text
-
-
-def call_api_with_text(system: str, user_prompt: str, model: str) -> str:
-    text = st.session_state.pdf_text[:120_000]
-    full_prompt = f"MANUSCRIPT TEXT:\n{text}\n\n{user_prompt}"
-    response = client.messages.create(
-        model=model,
-        max_tokens=4096,
-        system=system,
-        messages=[{"role": "user", "content": full_prompt}],
-    )
-    return response.content[0].text
-
-
-def parse_report(raw: str) -> dict | None:
-    try:
-        start = raw.index("{")
-        end   = raw.rindex("}") + 1
-        return json.loads(raw[start:end])
-    except (ValueError, json.JSONDecodeError):
-        return None
-
-
-def create_docx(report: dict | None, raw: str) -> bytes:
-    doc = Document()
-    style = doc.styles["Normal"]
-    style.font.name = "Calibri"
-    style.font.size = Pt(11)
-    heading = doc.add_heading("HPE Peer Review Report", 0)
-    heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-    # Confidentiality footer on every page
-    footer      = doc.sections[0].footer
-    footer_para = footer.paragraphs[0]
-    footer_para.text = (
-        "CONFIDENTIAL — Generated by HPE Expert Reviewer. "
-        "Processed via Anthropic API. Not for redistribution."
-    )
-    footer_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-    if report is None:
-        doc.add_paragraph(raw)
-    else:
-        def h2(text):
-            doc.add_heading(text, level=2)
-
-        verdict = report.get("verdict", "—")
-        score   = report.get("overall_score", "—")
-        p = doc.add_paragraph()
-        run = p.add_run(f"Verdict: {verdict}   |   Overall Score: {score}/100")
-        run.bold = True
-        run.font.size = Pt(13)
-        run.font.color.rgb = RGBColor(0x1A, 0x3A, 0x4A)
-        doc.add_paragraph(report.get("executive_summary", ""))
-
-        h2("Dimension Scores")
-        for k, v in report.get("scores", {}).items():
-            doc.add_paragraph(f"{k.capitalize()}: {v}/10", style="List Bullet")
-
-        kp = report.get("kirkpatrick_level", {})
-        if kp:
-            h2("Kirkpatrick Level")
-            doc.add_paragraph(f"Level {kp.get('level','?')}: {kp.get('justification','')}")
-
-        h2("Golden Thread Analysis")
-        doc.add_paragraph(report.get("golden_thread", ""))
-
-        h2("Strengths")
-        for s in report.get("strengths", []):
-            doc.add_paragraph(s, style="List Bullet")
-
-        h2("Weaknesses")
-        for w in report.get("weaknesses", []):
-            sev = w.get("severity", "minor").upper()
-            sec = w.get("section", "")
-            doc.add_paragraph(
-                f"[{sev} — {sec}] {w.get('issue','')}\n→ {w.get('suggestion','')}",
-                style="List Bullet",
-            )
-
-        h2("Section-by-Section Comments")
-        for sec, comment in report.get("section_comments", {}).items():
-            p = doc.add_paragraph()
-            p.add_run(sec.capitalize() + ": ").bold = True
-            p.add_run(comment)
-
-        h2("Citation Audit")
-        ca = report.get("citation_audit", {})
-        for ref in ca.get("missing_key_references", []):
-            doc.add_paragraph(f"Missing: {ref}", style="List Bullet")
-        for ref in ca.get("potentially_outdated", []):
-            doc.add_paragraph(f"Outdated: {ref}", style="List Bullet")
-        doc.add_paragraph(f"Mismatches: {ca.get('mismatches','None identified')}")
-
-        h2("Actionable Recommendations")
-        for i, rec in enumerate(report.get("actionable_recommendations", []), 1):
-            doc.add_paragraph(f"{i}. {rec}")
-
-        h2("Confidential Note to Editor")
-        p = doc.add_paragraph(report.get("editor_note", ""))
-        for run in p.runs:
-            run.italic = True
-
-    buf = BytesIO()
-    doc.save(buf)
-    return buf.getvalue()
-
-
-def render_verdict_badge(verdict: str) -> str:
-    colours = {
-        "accept": ("#d4edda", "#155724"),
-        "minor":  ("#fff3cd", "#856404"),
-        "major":  ("#f8d7da", "#721c24"),
-        "reject": ("#f8d7da", "#491217"),
-    }
-    key = "minor"
-    vl  = verdict.lower()
-    if "reject" in vl:                                                   key = "reject"
-    elif "major" in vl:                                                  key = "major"
-    elif "accept" in vl and "minor" not in vl and "major" not in vl:    key = "accept"
-    bg, fg = colours[key]
-    return (
-        f'<span style="background:{bg};color:{fg};padding:4px 14px;'
-        f'border-radius:20px;font-weight:600;font-size:0.9rem;">{verdict}</span>'
-    )
-
-
-# ─── SIDEBAR ──────────────────────────────────────────────────────────────────
-with st.sidebar:
-    st.title("🎓 HPE Expert Reviewer")
-    st.caption("Powered by Claude · Multi-phase critical analysis")
-
-    # ── Data protection status panel ──────────────────────────────────────────
-    with st.expander("🔒 Data & Privacy Status", expanded=False):
-        st.markdown(
-            f"""
-            | Item | Status |
-            |---|---|
-            | Consent given | ✅ Yes |
-            | Files written to disk | ✅ Never |
-            | API provider | Anthropic |
-            | Training on API data | ✅ No |
-            | Session started | {st.session_state.session_start.strftime('%H:%M UTC')} |
-            | Documents processed | {st.session_state.upload_count} |
-            """
-        )
-        if st.session_state.pdf_hash:
-            st.caption(f"Current file SHA-256: `{st.session_state.pdf_hash[:16]}…`")
-        st.markdown(
-            "[Anthropic Privacy Policy](https://www.anthropic.com/privacy) · "
-            "[Request ZDR](https://www.anthropic.com/contact-sales)"
-        )
-
-    st.divider()
-
-    uploaded = st.file_uploader("Upload manuscript (PDF)", type=["pdf"])
-    if uploaded:
-        if uploaded.name != st.session_state.pdf_name:
-            with st.spinner("Encoding PDF in memory…"):
-                b64, txt, sha = encode_pdf(uploaded)
-            st.session_state.pdf_base64   = b64
-            st.session_state.pdf_text     = txt
-            st.session_state.pdf_hash     = sha
-            st.session_state.pdf_name     = uploaded.name
-            st.session_state.report       = None
-            st.session_state.raw_report   = ""
-            st.session_state.chat_history = []
-            st.session_state.upload_count += 1
-        st.success(f"✅ {uploaded.name}")
-        st.caption(
-            f"{len(st.session_state.pdf_text):,} chars · "
-            f"SHA-256: {st.session_state.pdf_hash[:12]}…"
-        )
-
-    st.divider()
-
-    journal = st.selectbox("Target journal", JOURNALS)
-
-    st.markdown("**Review criteria**")
-    selected_criteria = [
-        key for key, label in REVIEW_CRITERIA.items()
-        if st.checkbox(label, value=True, key=f"cb_{key}")
-    ]
-
-    st.divider()
-
-    can_analyze = bool(st.session_state.pdf_base64) and len(selected_criteria) > 0
-    if st.button("🚀 Run Full Analysis", disabled=not can_analyze, use_container_width=True):
-        st.session_state.report       = None
-        st.session_state.raw_report   = ""
-        st.session_state.chat_history = []
-        st.session_state["_trigger_analysis"] = True
-
-    st.divider()
-
-    if st.button("🗑️ Clear Session & Delete All Data", use_container_width=True):
-        clear_session_data()
-        st.success("Session cleared. All document data removed from memory.")
-        st.rerun()
-
-    st.caption(
-        "⚠️ Closing this tab also clears all data. "
-        "No manuscript content is retained between sessions."
-    )
-
-# ─── ANALYSIS ─────────────────────────────────────────────────────────────────
-if st.session_state.get("_trigger_analysis"):
-    st.session_state["_trigger_analysis"] = False
-
-    system = build_system_prompt(journal)
-    prompt = build_review_prompt(selected_criteria, journal)
-
-    phases = [
-        "Phase 1 — Deep document read & structure audit",
-        "Phase 2 — Methodology & criteria assessment",
-        "Phase 3 — Citation audit & gap analysis",
-        "Phase 4 — Generating structured review report",
-    ]
-
-    progress = st.progress(0)
-    status   = st.status("Running analysis…", expanded=True)
-    raw        = None
-    model_used = PRIMARY_MODEL
-
-    for i, phase in enumerate(phases):
-        status.write(f"⚙️ {phase}")
-        progress.progress((i + 1) / len(phases))
-
-    try:
-        status.write(f"🧠 Sending to {PRIMARY_MODEL} with native PDF support…")
-        raw        = call_api_with_pdf(system, prompt, PRIMARY_MODEL)
-        model_used = PRIMARY_MODEL
-    except NotFoundError:
-        status.write(f"⚠️ {PRIMARY_MODEL} unavailable — falling back to {FALLBACK_MODEL}…")
-        try:
-            raw        = call_api_with_pdf(system, prompt, FALLBACK_MODEL)
-            model_used = FALLBACK_MODEL
-        except Exception:
-            status.write("⚠️ Native PDF failed — using extracted text…")
-            raw        = call_api_with_text(system, prompt, FALLBACK_MODEL)
-            model_used = FALLBACK_MODEL + " (text mode)"
-    except Exception as e:
-        status.write(f"⚠️ PDF mode error ({e}) — retrying with extracted text…")
-        try:
-            raw        = call_api_with_text(system, prompt, PRIMARY_MODEL)
-            model_used = PRIMARY_MODEL + " (text mode)"
-        except Exception as e2:
-            status.update(label=f"Error: {e2}", state="error")
-            st.stop()
-
-    progress.progress(1.0)
-    parsed = parse_report(raw)
-    st.session_state.report     = parsed
-    st.session_state.raw_report = raw
-    st.session_state.model_used = model_used
-
-    st.session_state.chat_history = [
-        {
-            "role": "user",
-            "content": [
-                {
-                    "type": "document",
-                    "source": {
-                        "type": "base64",
-                        "media_type": "application/pdf",
-                        "data": st.session_state.pdf_base64,
-                    },
-                },
-                {"type": "text", "text": "This is the manuscript we just reviewed."},
-            ],
-        },
-        {
-            "role": "assistant",
-            "content": f"I have completed a full peer review. Structured analysis:\n{raw}",
-        },
-    ]
-
-    status.update(label="Analysis complete ✓", state="complete", expanded=False)
-    st.rerun()
-
-# ─── IDLE STATE ───────────────────────────────────────────────────────────────
-if not st.session_state.report and not st.session_state.raw_report:
-    st.markdown(
-        """
-        <div style="text-align:center;padding:4rem 2rem;">
-          <h2 style="font-size:2rem;">🎓 HPE Manuscript Reviewer</h2>
-          <p style="color:#666;max-width:500px;margin:1rem auto;line-height:1.7">
-            Upload a manuscript PDF in the sidebar, choose your target journal and
-            review criteria, then click <strong>Run Full Analysis</strong>.
-          </p>
-          <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:1.5rem">
-            <span style="background:#e8f4f0;color:#1d6b52;padding:5px 14px;border-radius:20px;font-size:0.85rem">Multi-phase analysis</span>
-            <span style="background:#e8f4f0;color:#1d6b52;padding:5px 14px;border-radius:20px;font-size:0.85rem">Native PDF understanding</span>
-            <span style="background:#e8f4f0;color:#1d6b52;padding:5px 14px;border-radius:20px;font-size:0.85rem">CONSORT / SRQR / COREQ</span>
-            <span style="background:#e8f4f0;color:#1d6b52;padding:5px 14px;border-radius:20px;font-size:0.85rem">Kirkpatrick framework</span>
-            <span style="background:#e8f4f0;color:#1d6b52;padding:5px 14px;border-radius:20px;font-size:0.85rem">Citation audit</span>
-            <span style="background:#e8f4f0;color:#1d6b52;padding:5px 14px;border-radius:20px;font-size:0.85rem">Interactive Q&A</span>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.stop()
-
-# ─── MAIN DISPLAY ─────────────────────────────────────────────────────────────
-report = st.session_state.report
-raw    = st.session_state.raw_report
-
-st.caption(f"Generated with **{st.session_state.model_used}**")
-
-tab_report, tab_chat = st.tabs(["📝 Review Report", "💬 Editor Chat"])
-
-# ─── REPORT TAB ───────────────────────────────────────────────────────────────
-with tab_report:
-    if report is None:
-        st.warning("Could not parse structured JSON — showing raw report.")
-        st.text_area("Raw report", raw, height=600)
-    else:
-        verdict = report.get("verdict", "Unknown")
-        score   = report.get("overall_score", "—")
-
-        col_v, col_s, col_dl = st.columns([3, 1, 1])
-        with col_v:
-            st.markdown(render_verdict_badge(verdict), unsafe_allow_html=True)
-        with col_s:
-            st.metric("Overall score", f"{score}/100")
-        with col_dl:
-            docx_bytes = create_docx(report, raw)
-            st.download_button(
-                "⬇️ Download .docx",
-                data=docx_bytes,
-                file_name="HPE_Review_Report.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            )
-
-        st.markdown(f"> {report.get('executive_summary','')}")
-        st.divider()
-
-        scores = report.get("scores", {})
-        if scores:
-            cols = st.columns(len(scores))
-            for col, (k, v) in zip(cols, scores.items()):
-                col.metric(k.capitalize(), f"{v}/10")
-
-        kp = report.get("kirkpatrick_level", {})
-        if kp:
-            st.info(f"🎯 **Kirkpatrick Level {kp.get('level','?')}** — {kp.get('justification','')}")
-
-        st.divider()
-
-        with st.expander("🧵 Golden Thread Analysis", expanded=True):
-            st.write(report.get("golden_thread", "—"))
-
-        strengths = report.get("strengths", [])
-        if strengths:
-            with st.expander(f"✅ Strengths ({len(strengths)})", expanded=True):
-                for s in strengths:
-                    st.markdown(f"- {s}")
-
-        weaknesses = report.get("weaknesses", [])
-        if weaknesses:
-            majors = [w for w in weaknesses if w.get("severity") == "major"]
-            minors = [w for w in weaknesses if w.get("severity") != "major"]
-            with st.expander(f"⚠️ Weaknesses — {len(majors)} major, {len(minors)} minor", expanded=True):
-                for w in weaknesses:
-                    sev    = w.get("severity", "minor")
-                    colour = "🔴" if sev == "major" else "🟡"
-                    st.markdown(
-                        f"{colour} **[{sev.upper()} — {w.get('section','')}]** {w.get('issue','')}"
-                    )
-                    if w.get("suggestion"):
-                        st.caption(f"→ {w['suggestion']}")
-
-        sc = report.get("section_comments", {})
-        if sc:
-            with st.expander("📝 Section-by-Section Comments"):
-                for section, comment in sc.items():
-                    st.markdown(f"**{section.capitalize()}**")
-                    st.write(comment)
-                    st.divider()
-
-        ca = report.get("citation_audit", {})
-        if ca:
-            with st.expander("📚 Citation Audit"):
-                missing = ca.get("missing_key_references", [])
-                if missing:
-                    st.markdown("**Missing key references:**")
-                    for ref in missing:
-                        st.markdown(f"- {ref}")
-                outdated = ca.get("potentially_outdated", [])
-                if outdated:
-                    st.markdown("**Potentially outdated:**")
-                    for ref in outdated:
-                        st.markdown(f"- {ref}")
-                st.markdown(f"**Mismatches:** {ca.get('mismatches','None identified')}")
-
-        recs = report.get("actionable_recommendations", [])
-        if recs:
-            with st.expander(f"✅ Actionable Recommendations ({len(recs)})", expanded=True):
-                for i, rec in enumerate(recs, 1):
-                    st.markdown(f"**{i}.** {rec}")
-
-        editor_note = report.get("editor_note", "")
-        if editor_note:
-            with st.expander("🔒 Confidential Note to Editor"):
-                st.info(editor_note)
-
-# ─── CHAT TAB ─────────────────────────────────────────────────────────────────
-with tab_chat:
-    st.caption("Ask questions about the review or the manuscript. The full PDF is in context.")
-
-    quick_prompts = [
-        "Expand on the methodology critique",
-        "Which specific citations are missing and why?",
-        "How can the Discussion section be strengthened?",
-        "Explain the golden thread score in detail",
-        "What would it take to reach Kirkpatrick Level 3 or 4?",
-        "Suggest a revised abstract",
-    ]
-    cols = st.columns(3)
-    for i, qp in enumerate(quick_prompts):
-        if cols[i % 3].button(qp, key=f"qp_{i}", use_container_width=True):
-            st.session_state._pending_chat = qp
-
-    st.divider()
-
-    display_history = st.session_state.chat_history[2:]
-    for msg in display_history:
-        role    = msg["role"]
-        content = msg["content"] if isinstance(msg["content"], str) else str(msg["content"])
-        with st.chat_message(role):
-            st.markdown(content)
-
-    pending    = st.session_state.pop("_pending_chat", None)
-    user_input = st.chat_input("Ask about the review or manuscript…") or pending
-
-    if user_input:
-        with st.chat_message("user"):
-            st.markdown(user_input)
-        st.session_state.chat_history.append({"role": "user", "content": user_input})
-
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking…"):
+        font_size = st.slider("Font size", 9, 14, 11)
+        include_images = st.checkbox("Extract figures", value=True)
+        ocr = st.checkbox("OCR for scanned PDFs", value=True)
+        dpi = st.select_slider("Image DPI", [72,100,150,200], value=150)
+        as_zip = st.checkbox("Download as ZIP", value=False)
+
+    if files and st.button("Convert to Word"):
+        results = []
+        bar = st.progress(0)
+        for idx, f in enumerate(files):
+            with st.spinner(f"Converting {f.name}…"):
                 try:
-                    response = client.messages.create(
-                        model=FALLBACK_MODEL,
-                        max_tokens=2048,
-                        system=(
-                            "You are a Senior HPE Journal Editor who just completed a peer review. "
-                            "Answer questions about the manuscript and the review precisely. "
-                            "Quote specific manuscript passages when relevant. "
-                            "Be constructive and suggest concrete improvements."
-                        ),
-                        messages=st.session_state.chat_history,
-                    )
-                    reply = response.content[0].text
+                    docx_bytes = convert_pdf_to_docx(f.read(), font_size, include_images, ocr, dpi)
+                    out_name = os.path.splitext(f.name)[0] + ".docx"
+                    results.append({"name":f.name,"out":out_name,"bytes":docx_bytes,"ok":True})
                 except Exception as e:
-                    reply = f"Error: {e}"
+                    results.append({"name":f.name,"error":str(e),"ok":False})
+            bar.progress((idx+1)/len(files))
+        bar.empty()
 
-            st.markdown(reply)
-            st.session_state.chat_history.append({"role": "assistant", "content": reply})
+        if as_zip and any(r["ok"] for r in results):
+            zb = io.BytesIO()
+            with zipfile.ZipFile(zb,'w',zipfile.ZIP_DEFLATED) as zf:
+                for r in results:
+                    if r["ok"]: zf.writestr(r["out"], r["bytes"])
+            st.download_button("⬇ Download ZIP", zb.getvalue(), "converted.zip", "application/zip")
+        else:
+            for r in results:
+                status = "✅ Converted" if r["ok"] else f"❌ {r.get('error','')}"
+                st.markdown(f'<div class="result-card"><div class="fname">📄 {r["name"]}</div><div class="fmeta">{status}</div></div>', unsafe_allow_html=True)
+                if r["ok"]:
+                    st.download_button(f"⬇ Download {r['out']}", r["bytes"], r["out"],
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document", key=r["out"])
+
+# ── Merge ─────────────────────────────────────────────────────────
+elif selected_tool == "Merge PDFs":
+    files = st.file_uploader("Upload PDFs to merge (in order)", type=["pdf"], accept_multiple_files=True)
+    out_name = st.text_input("Output filename", value="merged.pdf")
+    if files:
+        st.info(f"{len(files)} files selected — they will be merged in the order shown above.")
+        if st.button("Merge PDFs"):
+            with st.spinner("Merging…"):
+                try:
+                    result = merge_pdfs([f.read() for f in files])
+                    info = get_pdf_info(result)
+                    st.success(f"✅ Merged {len(files)} files → {info['pages']} pages")
+                    st.download_button("⬇ Download Merged PDF", result, out_name, "application/pdf")
+                except Exception as e:
+                    st.error(f"❌ {e}")
+
+# ── Split ─────────────────────────────────────────────────────────
+elif selected_tool == "Split PDF":
+    f = st.file_uploader("Upload PDF", type=["pdf"])
+    if f:
+        pdf_bytes = f.read()
+        info = get_pdf_info(pdf_bytes)
+        st.info(f"📄 {info['pages']} pages total")
+
+        split_mode = st.radio("Split mode", ["Every page (individual files)", "Custom ranges"])
+        if split_mode == "Every page (individual files)":
+            ranges = [(i,i) for i in range(1, info['pages']+1)]
+        else:
+            range_input = st.text_input("Page ranges (e.g. 1-3, 4-6, 7-10)", value=f"1-{info['pages']}")
+            ranges = []
+            for part in range_input.split(','):
+                part = part.strip()
+                if '-' in part:
+                    a,b = part.split('-')
+                    ranges.append((int(a.strip()), int(b.strip())))
+                elif part.isdigit():
+                    ranges.append((int(part), int(part)))
+
+        if st.button("Split PDF"):
+            with st.spinner("Splitting…"):
+                try:
+                    results = split_pdf(pdf_bytes, ranges)
+                    st.success(f"✅ Created {len(results)} file(s)")
+                    if len(results) == 1:
+                        st.download_button(f"⬇ Download {results[0][0]}", results[0][1], results[0][0], "application/pdf")
+                    else:
+                        zb = io.BytesIO()
+                        with zipfile.ZipFile(zb,'w') as zf:
+                            for name, data in results: zf.writestr(name, data)
+                        st.download_button("⬇ Download All as ZIP", zb.getvalue(), "split_pages.zip", "application/zip")
+                except Exception as e:
+                    st.error(f"❌ {e}")
+
+# ── Rotate ────────────────────────────────────────────────────────
+elif selected_tool == "Rotate Pages":
+    f = st.file_uploader("Upload PDF", type=["pdf"])
+    if f:
+        pdf_bytes = f.read()
+        info = get_pdf_info(pdf_bytes)
+        st.info(f"📄 {info['pages']} pages")
+        col1, col2 = st.columns(2)
+        with col1:
+            angle = st.selectbox("Rotation angle", [90, 180, 270], format_func=lambda x: f"{x}°")
+        with col2:
+            page_mode = st.radio("Apply to", ["All pages", "Specific pages"])
+        page_nums = None
+        if page_mode == "Specific pages":
+            pg_input = st.text_input("Page numbers (e.g. 1, 3, 5)", value="1")
+            page_nums = [int(p.strip()) for p in pg_input.split(',') if p.strip().isdigit()]
+
+        if st.button("Rotate"):
+            with st.spinner("Rotating…"):
+                try:
+                    result = rotate_pdf(pdf_bytes, angle, page_nums)
+                    st.success("✅ Done!")
+                    out_name = os.path.splitext(f.name)[0] + f"_rotated.pdf"
+                    st.download_button("⬇ Download", result, out_name, "application/pdf")
+                except Exception as e:
+                    st.error(f"❌ {e}")
+
+# ── Watermark ─────────────────────────────────────────────────────
+elif selected_tool == "Watermark":
+    f = st.file_uploader("Upload PDF", type=["pdf"])
+    if f:
+        col1, col2 = st.columns(2)
+        with col1:
+            wm_text = st.text_input("Watermark text", value="CONFIDENTIAL")
+            font_size_wm = st.slider("Font size", 20, 100, 60)
+            angle = st.slider("Angle (degrees)", 0, 90, 45)
+        with col2:
+            opacity = st.slider("Opacity", 0.05, 0.8, 0.25)
+            color = st.color_picker("Colour", "#cc3333")
+
+        if st.button("Add Watermark"):
+            with st.spinner("Adding watermark…"):
+                try:
+                    result = add_watermark(f.read(), wm_text, opacity, font_size_wm, color, angle)
+                    st.success("✅ Watermark added!")
+                    out_name = os.path.splitext(f.name)[0] + "_watermarked.pdf"
+                    st.download_button("⬇ Download", result, out_name, "application/pdf")
+                except Exception as e:
+                    st.error(f"❌ {e}")
+
+# ── Compress ──────────────────────────────────────────────────────
+elif selected_tool == "Compress":
+    files = st.file_uploader("Upload PDF(s)", type=["pdf"], accept_multiple_files=True)
+    if files and st.button("Compress"):
+        bar = st.progress(0)
+        for idx, f in enumerate(files):
+            with st.spinner(f"Compressing {f.name}…"):
+                try:
+                    original = f.read()
+                    compressed = compress_pdf(original)
+                    saving = (1 - len(compressed)/len(original)) * 100
+                    st.markdown(f'<div class="result-card"><div class="fname">🗜️ {f.name}</div><div class="fmeta">{len(original):,} bytes → {len(compressed):,} bytes ({saving:.1f}% smaller)</div></div>', unsafe_allow_html=True)
+                    out_name = os.path.splitext(f.name)[0] + "_compressed.pdf"
+                    st.download_button(f"⬇ Download {out_name}", compressed, out_name, "application/pdf", key=out_name)
+                except Exception as e:
+                    st.error(f"❌ {f.name}: {e}")
+            bar.progress((idx+1)/len(files))
+        bar.empty()
+
+# ── Protect / Unlock ──────────────────────────────────────────────
+elif selected_tool == "Protect / Unlock":
+    f = st.file_uploader("Upload PDF", type=["pdf"])
+    if f:
+        pdf_bytes = f.read()
+        info = get_pdf_info(pdf_bytes)
+        action = st.radio("Action", ["🔒 Add Password", "🔓 Remove Password"] if info["encrypted"] else ["🔒 Add Password"])
+
+        if "Add Password" in action:
+            col1, col2 = st.columns(2)
+            with col1: user_pw = st.text_input("User password (to open)", type="password")
+            with col2: owner_pw = st.text_input("Owner password (optional)", type="password")
+            if st.button("Protect PDF") and user_pw:
+                with st.spinner("Protecting…"):
+                    try:
+                        result = protect_pdf(pdf_bytes, user_pw, owner_pw or None)
+                        st.success("✅ PDF is now password protected!")
+                        out_name = os.path.splitext(f.name)[0] + "_protected.pdf"
+                        st.download_button("⬇ Download", result, out_name, "application/pdf")
+                    except Exception as e:
+                        st.error(f"❌ {e}")
+        else:
+            pw = st.text_input("Enter current password", type="password")
+            if st.button("Remove Password") and pw:
+                with st.spinner("Unlocking…"):
+                    try:
+                        result = unlock_pdf(pdf_bytes, pw)
+                        st.success("✅ Password removed!")
+                        out_name = os.path.splitext(f.name)[0] + "_unlocked.pdf"
+                        st.download_button("⬇ Download", result, out_name, "application/pdf")
+                    except Exception as e:
+                        st.error(f"❌ Wrong password or error: {e}")
+
+# ── Extract Images ────────────────────────────────────────────────
+elif selected_tool == "Extract Images":
+    f = st.file_uploader("Upload PDF", type=["pdf"])
+    if f:
+        pdf_bytes = f.read()
+        info = get_pdf_info(pdf_bytes)
+        col1, col2, col3 = st.columns(3)
+        with col1: dpi = st.select_slider("DPI quality", [72,100,150,200,300], value=150)
+        with col2: fmt = st.selectbox("Format", ["PNG","JPEG"])
+        with col3: st.write(f"**{info['pages']} pages** to extract")
+
+        if st.button("Extract Pages as Images"):
+            with st.spinner(f"Rendering {info['pages']} pages…"):
+                try:
+                    results = extract_as_images(pdf_bytes, dpi, fmt)
+                    st.success(f"✅ Extracted {len(results)} images")
+                    zb = io.BytesIO()
+                    with zipfile.ZipFile(zb,'w') as zf:
+                        for name, data in results: zf.writestr(name, data)
+                    st.download_button("⬇ Download All as ZIP", zb.getvalue(), "pages.zip", "application/zip")
+
+                    # Preview first 3
+                    st.markdown("**Preview (first 3 pages):**")
+                    cols = st.columns(min(3, len(results)))
+                    for i, (name, data) in enumerate(results[:3]):
+                        with cols[i]:
+                            st.image(data, caption=name, use_column_width=True)
+                except Exception as e:
+                    st.error(f"❌ {e}")
+
+# ── Add Text Annotation ───────────────────────────────────────────
+elif selected_tool == "Add Text":
+
+    FONTS = {
+        "Serif Regular (Arabic ✓)":     "/usr/share/fonts/truetype/freefont/FreeSerif.ttf",
+        "Serif Bold (Arabic ✓)":        "/usr/share/fonts/truetype/freefont/FreeSerifBold.ttf",
+        "Serif Italic (Arabic ✓)":      "/usr/share/fonts/truetype/freefont/FreeSerifItalic.ttf",
+        "Serif Bold Italic (Arabic ✓)": "/usr/share/fonts/truetype/freefont/FreeSerifBoldItalic.ttf",
+        "Sans Regular (Arabic ✓)":      "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+        "Sans Bold (Arabic ✓)":         "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+        "Sans Oblique (Arabic ✓)":      "/usr/share/fonts/truetype/freefont/FreeSansOblique.ttf",
+        "Sans Bold Oblique (Arabic ✓)": "/usr/share/fonts/truetype/freefont/FreeSansBoldOblique.ttf",
+        "Mono":                         "/usr/share/fonts/truetype/freefont/FreeMono.ttf",
+        "Mono Bold":                    "/usr/share/fonts/truetype/freefont/FreeMonoBold.ttf",
+        "DejaVu Sans":                  "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "DejaVu Sans Bold":             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    }
+
+    # ── Initialise session state ──────────────────────────────
+    for key, val in [
+        ("at_annotations", []),
+        ("at_pdf_bytes", None),
+        ("at_page", 1),
+        ("at_click_x", 10),
+        ("at_click_y", 10),
+    ]:
+        if key not in st.session_state:
+            st.session_state[key] = val
+
+    # ── File upload ───────────────────────────────────────────
+    f = st.file_uploader("Upload PDF", type=["pdf"], key="at_uploader")
+    if f:
+        data = f.read()
+        if st.session_state.at_pdf_bytes != data:
+            st.session_state.at_pdf_bytes = data
+            st.session_state.at_annotations = []
+
+    if st.session_state.at_pdf_bytes:
+        pdf_bytes = st.session_state.at_pdf_bytes
+        info = get_pdf_info(pdf_bytes)
+
+        # ── Controls ──────────────────────────────────────────
+        st.markdown("#### ✍️ Text & Style")
+        col_t, col_f, col_s, col_c, col_p = st.columns([3,2,1,1,1])
+        with col_t:
+            annot_text = st.text_input("Text (Arabic / English / mixed)",
+                                        value="اكتب هنا · Type here", key="at_text")
+        with col_f:
+            font_name = st.selectbox("Font", list(FONTS.keys()), key="at_font")
+        with col_s:
+            font_size_a = st.number_input("Size pt", 6, 120, 18, key="at_size")
+        with col_c:
+            color_a = st.color_picker("Colour", "#1c1917", key="at_color")
+        with col_p:
+            page_num = st.number_input("Page", 1, info["pages"], 1, key="at_page_num")
+        font_path = FONTS[font_name]
+
+        st.markdown("---")
+        st.markdown("#### 📍 Click on the page to place your text")
+        st.caption("Click anywhere on the document below. The position is saved automatically — then click **Add to Document**.")
+
+        # ── Render page as base64 ─────────────────────────────
+        import base64
+        import streamlit.components.v1 as components
+        from PIL import ImageFont, ImageDraw
+        from reportlab.lib.utils import ImageReader
+
+        try:
+            prev_imgs = convert_from_bytes(pdf_bytes, dpi=120,
+                                            first_page=int(page_num),
+                                            last_page=int(page_num))
+            prev_img = prev_imgs[0]
+            prev_w, prev_h = prev_img.size
+            pg_buf = io.BytesIO()
+            prev_img.save(pg_buf, "PNG")
+            pg_b64 = base64.b64encode(pg_buf.getvalue()).decode()
+            page_ok = True
+        except Exception as e:
+            st.error(f"Page render error: {e}")
+            page_ok = False
+
+        if page_ok:
+            # Pre-render text preview as transparent PNG
+            try:
+                fp = ImageFont.truetype(font_path, font_size_a * 3)
+                dummy = Image.new("RGBA", (1,1))
+                bb = ImageDraw.Draw(dummy).textbbox((0,0), annot_text, font=fp)
+                tw = max(1, bb[2]-bb[0]+20)
+                th = max(1, bb[3]-bb[1]+20)
+                ti = Image.new("RGBA", (tw, th), (255,255,255,0))
+                ch2 = color_a.lstrip("#")
+                cr2,cg2,cb2 = int(ch2[0:2],16),int(ch2[2:4],16),int(ch2[4:6],16)
+                ImageDraw.Draw(ti).text((10,10), annot_text, font=fp,
+                                         fill=(cr2,cg2,cb2,255))
+                tbuf = io.BytesIO(); ti.save(tbuf,"PNG"); tbuf.seek(0)
+                txt_b64 = base64.b64encode(tbuf.getvalue()).decode()
+                td_w = max(1, tw//3)
+                td_h = max(1, th//3)
+            except Exception:
+                txt_b64 = ""
+                td_w, td_h = 120, 30
+
+            # Canvas height proportional to A4/letter
+            canvas_h = min(900, int(700 * prev_h / prev_w))
+
+            # The HTML canvas — click sends coords via query param trick
+            canvas_html = f"""<!DOCTYPE html><html><head>
+<style>
+*{{margin:0;padding:0;box-sizing:border-box;}}
+body{{background:#f7f3ee;}}
+#wrap{{position:relative;display:inline-block;cursor:crosshair;
+       border:1px solid #d5ccc4;box-shadow:0 2px 16px rgba(0,0,0,0.1);
+       background:#fff;user-select:none;}}
+#pageImg{{display:block;width:100%;}}
+#cvs{{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;}}
+#tip{{position:absolute;background:rgba(28,25,23,0.82);color:#f7f3ee;
+      padding:3px 8px;font-size:10px;font-family:sans-serif;border-radius:2px;
+      pointer-events:none;display:none;white-space:nowrap;}}
+#info{{margin-top:6px;font-size:11px;color:#6b5f55;font-family:sans-serif;
+       min-height:18px;}}
+</style></head><body>
+<div id="wrap">
+  <img id="pageImg" src="data:image/png;base64,{pg_b64}" draggable="false"/>
+  <canvas id="cvs"></canvas>
+  <div id="tip">📝 {annot_text[:28]}{'...' if len(annot_text)>28 else ''}</div>
+</div>
+<div id="info">👆 Click anywhere on the page to set text position</div>
+<script>
+const wrap=document.getElementById('wrap');
+const img=document.getElementById('pageImg');
+const cvs=document.getElementById('cvs');
+const ctx=cvs.getContext('2d');
+const tip=document.getElementById('tip');
+const info=document.getElementById('info');
+const TXT_W={td_w}, TXT_H={td_h};
+const NAT_W={prev_w}, NAT_H={prev_h};
+const txtB64="{txt_b64}";
+let txtImg=new Image();
+if(txtB64){{txtImg.src='data:image/png;base64,'+txtB64;}}
+let placed=false, cx=0, cy=0;
+
+function sync(){{
+  cvs.width=img.offsetWidth; cvs.height=img.offsetHeight;
+  cvs.style.width=img.offsetWidth+'px'; cvs.style.height=img.offsetHeight+'px';
+  if(placed) draw();
+}}
+img.onload=sync;
+window.addEventListener('resize',sync);
+setTimeout(sync,80);
+
+wrap.addEventListener('mousemove',e=>{{
+  const r=wrap.getBoundingClientRect();
+  const mx=e.clientX-r.left, my=e.clientY-r.top;
+  tip.style.display='block';
+  tip.style.left=(mx+14)+'px';
+  tip.style.top=(my-22)+'px';
+}});
+wrap.addEventListener('mouseleave',()=>{{tip.style.display='none';}});
+
+wrap.addEventListener('click',e=>{{
+  const r=wrap.getBoundingClientRect();
+  cx=e.clientX-r.left; cy=e.clientY-r.top;
+  placed=true; draw();
+  const pctX=Math.round(cx/img.offsetWidth*100);
+  const pctY=Math.round(cy/img.offsetHeight*100);
+  info.innerHTML='<b style="color:#1c1917">✓ Position set: '+pctX+'% across, '+pctY+'% down</b> — now click <b>Add to Document</b> below';
+  // Send to Streamlit
+  window.parent.postMessage({{
+    isStreamlitMessage:true,
+    type:'streamlit:setComponentValue',
+    value: pctX+','+pctY
+  }},'*');
+}});
+
+function draw(){{
+  sync();
+  ctx.clearRect(0,0,cvs.width,cvs.height);
+  // Crosshair
+  ctx.strokeStyle='#8b5e52'; ctx.lineWidth=1.5; ctx.setLineDash([5,3]);
+  ctx.beginPath();
+  ctx.moveTo(cx-16,cy); ctx.lineTo(cx+16,cy);
+  ctx.moveTo(cx,cy-16); ctx.lineTo(cx,cy+16);
+  ctx.stroke(); ctx.setLineDash([]);
+  // Text preview image
+  if(txtB64&&txtImg.complete&&txtImg.naturalWidth>0){{
+    ctx.globalAlpha=0.9;
+    ctx.drawImage(txtImg,cx,cy-TXT_H/2,TXT_W,TXT_H);
+    ctx.globalAlpha=1;
+    ctx.strokeStyle='#8b5e52'; ctx.lineWidth=1; ctx.setLineDash([3,2]);
+    ctx.strokeRect(cx-1,cy-TXT_H/2-1,TXT_W+2,TXT_H+2);
+    ctx.setLineDash([]);
+  }}
+}}
+</script>
+</body></html>"""
+
+            # Render canvas — capture returned value as click coords
+            click_val = components.html(canvas_html, height=canvas_h + 40, scrolling=False)
+
+            # ── Position inputs (editable, also updated by click) ─
+            st.markdown("---")
+            st.markdown("##### Position")
+            pc1, pc2 = st.columns(2)
+            with pc1:
+                x_pct = st.number_input("X — horizontal (%)", 0, 99,
+                                         st.session_state.at_click_x,
+                                         help="0 = left edge, 100 = right edge",
+                                         key="at_xpct")
+            with pc2:
+                y_pct = st.number_input("Y — vertical (%)", 0, 99,
+                                         st.session_state.at_click_y,
+                                         help="0 = top, 100 = bottom",
+                                         key="at_ypct")
+
+            # ── Add annotation button ─────────────────────────────
+            if st.button("＋ Add to Document", use_container_width=True, key="at_add_btn"):
+                st.session_state.at_annotations.append({
+                    "text":    annot_text,
+                    "font":    font_path,
+                    "fname":   font_name,
+                    "size":    int(font_size_a),
+                    "color":   color_a,
+                    "opacity": 1.0,
+                    "page":    int(page_num),
+                    "x_pct":  x_pct,
+                    "y_pct":  y_pct,
+                })
+                st.success(f"Added — page {page_num}, position ({x_pct}%, {y_pct}%)")
+
+            # ── Queued annotations ────────────────────────────────
+            anns = st.session_state.at_annotations
+            if anns:
+                st.markdown(f"---")
+                st.markdown(f"**{len(anns)} text annotation(s) ready to apply:**")
+                for i, ann in enumerate(anns):
+                    col_ann, col_del = st.columns([5,1])
+                    with col_ann:
+                        st.markdown(
+                            f'<div class="result-card">'
+                            f'<div class="fname">"{ann["text"][:60]}"</div>'
+                            f'<div class="fmeta">'
+                            f'Page {ann["page"]} &nbsp;·&nbsp; {ann["fname"]} &nbsp;·&nbsp; '
+                            f'{ann["size"]}pt &nbsp;·&nbsp; '
+                            f'({ann["x_pct"]}%, {ann["y_pct"]}%)'
+                            f'</div></div>',
+                            unsafe_allow_html=True)
+                    with col_del:
+                        if st.button("✕", key=f"at_del_{i}", help="Remove"):
+                            st.session_state.at_annotations.pop(i)
+                            st.rerun()
+
+                bapply, bclear = st.columns(2)
+                with bclear:
+                    if st.button("🗑 Clear all", use_container_width=True, key="at_clear"):
+                        st.session_state.at_annotations = []
+                        st.rerun()
+                with bapply:
+                    if st.button("✓ Apply & Download PDF", use_container_width=True,
+                                  key="at_apply"):
+                        with st.spinner("Embedding text into PDF…"):
+                            try:
+                                from reportlab.lib.utils import ImageReader
+                                result_bytes = pdf_bytes
+                                for ann in st.session_state.at_annotations:
+                                    fp2 = ImageFont.truetype(ann["font"], ann["size"]*3)
+                                    dummy2 = Image.new("RGBA",(1,1))
+                                    bb2 = ImageDraw.Draw(dummy2).textbbox((0,0), ann["text"], font=fp2)
+                                    tw2 = max(1, bb2[2]-bb2[0]+20)
+                                    th2 = max(1, bb2[3]-bb2[1]+20)
+                                    ti2 = Image.new("RGBA",(tw2,th2),(255,255,255,0))
+                                    ch3 = ann["color"].lstrip("#")
+                                    cr3,cg3,cb3 = int(ch3[0:2],16),int(ch3[2:4],16),int(ch3[4:6],16)
+                                    ImageDraw.Draw(ti2).text((10,10), ann["text"], font=fp2,
+                                                              fill=(cr3,cg3,cb3,255))
+                                    r_t = PdfReader(io.BytesIO(result_bytes))
+                                    pg_t = r_t.pages[ann["page"]-1]
+                                    pdf_w3 = float(pg_t.mediabox.width)
+                                    pdf_h3 = float(pg_t.mediabox.height)
+                                    x3 = (ann["x_pct"]/100)*pdf_w3
+                                    y3 = pdf_h3 - (ann["y_pct"]/100)*pdf_h3 - (th2/3)
+                                    ib3 = io.BytesIO(); ti2.save(ib3,"PNG"); ib3.seek(0)
+                                    ob3 = io.BytesIO()
+                                    oc3 = rl_canvas.Canvas(ob3, pagesize=(pdf_w3,pdf_h3))
+                                    oc3.drawImage(ImageReader(ib3), x3, y3,
+                                                   width=tw2/3, height=th2/3, mask="auto")
+                                    oc3.save()
+                                    ov3 = PdfReader(io.BytesIO(ob3.getvalue())).pages[0]
+                                    rd3 = PdfReader(io.BytesIO(result_bytes))
+                                    wt3 = PdfWriter()
+                                    for ii3, pg3 in enumerate(rd3.pages):
+                                        if ii3 == ann["page"]-1:
+                                            pg3.merge_page(ov3)
+                                        wt3.add_page(pg3)
+                                    ob4 = io.BytesIO(); wt3.write(ob4)
+                                    result_bytes = ob4.getvalue()
+
+                                st.success(f"✅ {len(st.session_state.at_annotations)} annotation(s) embedded!")
+                                if f:
+                                    out_name = os.path.splitext(f.name)[0] + "_annotated.pdf"
+                                else:
+                                    out_name = "annotated.pdf"
+                                st.download_button("⬇ Download PDF",
+                                    result_bytes, out_name, "application/pdf",
+                                    key="at_download")
+                                st.session_state.at_annotations = []
+                            except Exception as e:
+                                st.error(f"❌ {e}")
+
+# ── Redact ────────────────────────────────────────────────────────
+elif selected_tool == "Redact":
+    f = st.file_uploader("Upload PDF", type=["pdf"])
+    if f:
+        pdf_bytes = f.read()
+        info = get_pdf_info(pdf_bytes)
+        st.info("Position a black redaction box over sensitive content.")
+        col1, col2 = st.columns(2)
+        with col1:
+            page_num_r = st.number_input("Page number", 1, info["pages"], 1)
+            x_r = st.slider("X position", 0, 600, 100)
+            y_r = st.slider("Y position (from bottom)", 0, 800, 700)
+        with col2:
+            w_r = st.slider("Width", 10, 500, 200)
+            h_r = st.slider("Height", 5, 100, 20)
+
+        if st.button("Apply Redaction"):
+            with st.spinner("Redacting…"):
+                try:
+                    result = redact_pdf(pdf_bytes, page_num_r, x_r, y_r, w_r, h_r)
+                    st.success(f"✅ Redacted page {page_num_r}")
+                    out_name = os.path.splitext(f.name)[0] + "_redacted.pdf"
+                    st.download_button("⬇ Download", result, out_name, "application/pdf")
+                except Exception as e:
+                    st.error(f"❌ {e}")
+
+# ── Reorder Pages ─────────────────────────────────────────────────
+elif selected_tool == "Reorder Pages":
+    f = st.file_uploader("Upload PDF", type=["pdf"])
+    if f:
+        pdf_bytes = f.read()
+        info = get_pdf_info(pdf_bytes)
+        st.info(f"📄 {info['pages']} pages — enter the new page order below.")
+        default_order = ", ".join(str(i) for i in range(1, info['pages']+1))
+        order_input = st.text_input("New page order (comma separated)", value=default_order)
+        st.caption("Example: '3, 1, 2' moves page 3 to the front.")
+
+        if st.button("Reorder Pages"):
+            with st.spinner("Reordering…"):
+                try:
+                    new_order = [int(x.strip()) for x in order_input.split(',') if x.strip().isdigit()]
+                    result = reorder_pages(pdf_bytes, new_order)
+                    st.success(f"✅ Reordered to: {new_order}")
+                    out_name = os.path.splitext(f.name)[0] + "_reordered.pdf"
+                    st.download_button("⬇ Download", result, out_name, "application/pdf")
+                except Exception as e:
+                    st.error(f"❌ {e}")
+
+# ── Images → PDF ──────────────────────────────────────────────────
+elif selected_tool == "Images → PDF":
+    st.markdown("Convert JPG, PNG, WEBP, BMP or TIFF images into a single PDF.")
+    files = st.file_uploader(
+        "Upload images (they will appear in the PDF in the order uploaded)",
+        type=["jpg","jpeg","png","webp","bmp","tiff","tif"],
+        accept_multiple_files=True, key="img2pdf_files"
+    )
+    if files:
+        col1, col2 = st.columns(2)
+        with col1:
+            page_size = st.selectbox("Page size", ["A4","Letter","Fit to image"], key="img2pdf_size")
+            orientation = st.selectbox("Orientation", ["Portrait","Landscape"], key="img2pdf_orient")
+        with col2:
+            margin_mm = st.slider("Margin (mm)", 0, 40, 10, key="img2pdf_margin")
+            out_name_img = st.text_input("Output filename", value="images.pdf", key="img2pdf_name")
+
+        # Show thumbnails
+        st.markdown(f"**{len(files)} image(s) selected:**")
+        thumb_cols = st.columns(min(6, len(files)))
+        for i, imgf in enumerate(files[:6]):
+            with thumb_cols[i]:
+                st.image(imgf, use_column_width=True)
+                st.caption(imgf.name[:16])
+
+        if st.button("Convert to PDF", key="img2pdf_btn", use_container_width=True):
+            with st.spinner(f"Converting {len(files)} image(s)…"):
+                try:
+                    from PIL import Image as PILImage
+                    from reportlab.lib.pagesizes import A4, letter
+                    from reportlab.lib.utils import ImageReader
+
+                    PAGE_SIZES = {"A4": A4, "Letter": letter}
+                    margin_pt = margin_mm * 2.835  # mm to points
+
+                    pil_images = []
+                    for imgf in files:
+                        img = PILImage.open(imgf).convert("RGB")
+                        pil_images.append(img)
+
+                    if page_size == "Fit to image":
+                        # Each page fits its image
+                        first_w, first_h = pil_images[0].size
+                        ps = (first_w, first_h)
+                    else:
+                        ps = PAGE_SIZES.get(page_size, A4)
+                        if orientation == "Landscape":
+                            ps = (ps[1], ps[0])
+
+                    out_buf = io.BytesIO()
+                    c = rl_canvas.Canvas(out_buf, pagesize=ps)
+
+                    for idx, img in enumerate(pil_images):
+                        if page_size == "Fit to image":
+                            iw, ih = img.size
+                            c.setPageSize((iw, ih))
+                            avail_w, avail_h = iw - margin_pt*2, ih - margin_pt*2
+                        else:
+                            avail_w = ps[0] - margin_pt*2
+                            avail_h = ps[1] - margin_pt*2
+
+                        iw, ih = img.size
+                        scale = min(avail_w/iw, avail_h/ih)
+                        draw_w, draw_h = iw*scale, ih*scale
+                        x = margin_pt + (avail_w - draw_w)/2
+                        y = margin_pt + (avail_h - draw_h)/2
+
+                        img_buf = io.BytesIO()
+                        img.save(img_buf, "PNG")
+                        img_buf.seek(0)
+                        c.drawImage(ImageReader(img_buf), x, y, width=draw_w, height=draw_h)
+                        c.showPage()
+
+                    c.save()
+                    pdf_data = out_buf.getvalue()
+                    st.success(f"✅ {len(pil_images)} images → {len(pil_images)}-page PDF")
+                    st.download_button("⬇ Download PDF", pdf_data,
+                                        out_name_img, "application/pdf", key="img2pdf_dl")
+                except Exception as e:
+                    st.error(f"❌ {e}")
+
+# ── Word → PDF ────────────────────────────────────────────────────
+elif selected_tool == "Word → PDF":
+    st.markdown("Convert `.docx` Word documents to PDF using LibreOffice.")
+    files = st.file_uploader("Upload Word documents (.docx)",
+                              type=["docx"], accept_multiple_files=True, key="word2pdf_files")
+    if files:
+        as_zip_w = st.checkbox("Download all as ZIP", value=len(files)>1, key="word2pdf_zip")
+        if st.button("Convert to PDF", use_container_width=True, key="word2pdf_btn"):
+            import tempfile, subprocess
+            results = []
+            bar = st.progress(0)
+            for idx, f in enumerate(files):
+                with st.spinner(f"Converting {f.name}…"):
+                    try:
+                        with tempfile.TemporaryDirectory() as tmp:
+                            in_path = os.path.join(tmp, f.name)
+                            with open(in_path, "wb") as fout:
+                                fout.write(f.read())
+                            r = subprocess.run(
+                                ["libreoffice","--headless","--convert-to","pdf",
+                                 "--outdir", tmp, in_path],
+                                capture_output=True, text=True, timeout=60
+                            )
+                            pdf_path = in_path.replace(".docx",".pdf")
+                            if os.path.exists(pdf_path):
+                                with open(pdf_path,"rb") as pf:
+                                    pdf_data = pf.read()
+                                out_n = os.path.splitext(f.name)[0]+".pdf"
+                                results.append({"name":f.name,"out":out_n,"bytes":pdf_data,"ok":True})
+                            else:
+                                results.append({"name":f.name,"error":r.stderr[:200],"ok":False})
+                    except Exception as e:
+                        results.append({"name":f.name,"error":str(e),"ok":False})
+                bar.progress((idx+1)/len(files))
+            bar.empty()
+
+            if as_zip_w and any(r["ok"] for r in results):
+                zb = io.BytesIO()
+                with zipfile.ZipFile(zb,"w",zipfile.ZIP_DEFLATED) as zf:
+                    for r in results:
+                        if r["ok"]: zf.writestr(r["out"], r["bytes"])
+                st.download_button("⬇ Download ZIP", zb.getvalue(),
+                                    "converted.zip", "application/zip", key="word2pdf_zip_dl")
+            for r in results:
+                status = "✓ Converted" if r["ok"] else f"✗ {r.get('error','')}"
+                color = "#6b8b5e" if r["ok"] else "#8b5e5e"
+                st.markdown(
+                    f'<div class="result-card"><div class="fname">📄 {r["name"]}</div>'
+                    f'<div class="fmeta" style="color:{color}">{status}</div></div>',
+                    unsafe_allow_html=True)
+                if r["ok"]:
+                    st.download_button(f"⬇ Download {r['out']}", r["bytes"], r["out"],
+                                        "application/pdf", key=f"w2p_{r['out']}")
+
+# ── Excel → PDF ───────────────────────────────────────────────────
+elif selected_tool == "Excel → PDF":
+    st.markdown("Convert `.xlsx` Excel spreadsheets to PDF using LibreOffice.")
+    files = st.file_uploader("Upload Excel files (.xlsx)",
+                              type=["xlsx","xls"], accept_multiple_files=True, key="xl2pdf_files")
+    if files:
+        as_zip_x = st.checkbox("Download all as ZIP", value=len(files)>1, key="xl2pdf_zip")
+        if st.button("Convert to PDF", use_container_width=True, key="xl2pdf_btn"):
+            import tempfile, subprocess
+            results = []
+            bar2 = st.progress(0)
+            for idx, f in enumerate(files):
+                with st.spinner(f"Converting {f.name}…"):
+                    try:
+                        with tempfile.TemporaryDirectory() as tmp:
+                            in_path = os.path.join(tmp, f.name)
+                            with open(in_path,"wb") as fout:
+                                fout.write(f.read())
+                            r = subprocess.run(
+                                ["libreoffice","--headless","--convert-to","pdf",
+                                 "--outdir", tmp, in_path],
+                                capture_output=True, text=True, timeout=60
+                            )
+                            ext = os.path.splitext(f.name)[1]
+                            pdf_path = in_path.replace(ext, ".pdf")
+                            if os.path.exists(pdf_path):
+                                with open(pdf_path,"rb") as pf:
+                                    pdf_data = pf.read()
+                                out_n = os.path.splitext(f.name)[0]+".pdf"
+                                results.append({"name":f.name,"out":out_n,"bytes":pdf_data,"ok":True})
+                            else:
+                                results.append({"name":f.name,"error":r.stderr[:200],"ok":False})
+                    except Exception as e:
+                        results.append({"name":f.name,"error":str(e),"ok":False})
+                bar2.progress((idx+1)/len(files))
+            bar2.empty()
+
+            if as_zip_x and any(r["ok"] for r in results):
+                zb2 = io.BytesIO()
+                with zipfile.ZipFile(zb2,"w",zipfile.ZIP_DEFLATED) as zf2:
+                    for r in results:
+                        if r["ok"]: zf2.writestr(r["out"], r["bytes"])
+                st.download_button("⬇ Download ZIP", zb2.getvalue(),
+                                    "converted_xl.zip", "application/zip", key="xl2pdf_zip_dl")
+            for r in results:
+                status = "✓ Converted" if r["ok"] else f"✗ {r.get('error','')}"
+                color = "#6b8b5e" if r["ok"] else "#8b5e5e"
+                st.markdown(
+                    f'<div class="result-card"><div class="fname">📊 {r["name"]}</div>'
+                    f'<div class="fmeta" style="color:{color}">{status}</div></div>',
+                    unsafe_allow_html=True)
+                if r["ok"]:
+                    st.download_button(f"⬇ Download {r['out']}", r["bytes"], r["out"],
+                                        "application/pdf", key=f"x2p_{r['out']}")
