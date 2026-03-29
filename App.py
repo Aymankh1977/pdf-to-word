@@ -1234,35 +1234,83 @@ elif selected_tool == "PDF → Images":
     if f:
         pdf_bytes = f.read()
         info = get_pdf_info(pdf_bytes)
+
         col1, col2, col3 = st.columns(3)
-        with col1: dpi = st.select_slider("Quality (DPI)", [72,100,150,200,300], 150, key="pdf2img_dpi")
-        with col2: fmt = st.selectbox("Format", ["PNG","JPEG","WEBP"], key="pdf2img_fmt")
-        with col3: st.metric("Pages", info["pages"])
+        with col1:
+            dpi = st.select_slider("Quality (DPI)", [72, 100, 150], 100, key="pdf2img_dpi")
+        with col2:
+            fmt = st.selectbox("Format", ["PNG", "JPEG", "WEBP"], key="pdf2img_fmt")
+        with col3:
+            st.metric("Pages", info["pages"])
+
+        # Warn if large document
+        est_mb = info["pages"] * dpi * dpi * 3 / (1024**2) / 10
+        if info["pages"] > 10 or dpi > 100:
+            st.warning(f"⚠️ Large conversion ({info['pages']} pages at {dpi} DPI ≈ {est_mb:.0f} MB). "
+                       f"If the app crashes, try lower DPI or fewer pages.")
+
+        page_range = st.text_input("Page range (optional, e.g. 1-5 or leave blank for all)",
+                                    value="", key="pdf2img_range")
 
         if st.button("Convert to Images", use_container_width=True, key="pdf2img_btn"):
-            with st.spinner(f"Rendering {info['pages']} pages at {dpi} DPI…"):
-                try:
-                    imgs = convert_from_bytes(pdf_bytes, dpi=dpi)
-                    zb = io.BytesIO()
-                    with zipfile.ZipFile(zb,"w",zipfile.ZIP_DEFLATED) as zf:
-                        for i, img in enumerate(imgs):
-                            ib = io.BytesIO()
-                            img.save(ib, fmt)
-                            zf.writestr(f"page_{i+1:03d}.{fmt.lower()}", ib.getvalue())
+            # Parse page range
+            try:
+                if page_range.strip():
+                    parts = page_range.strip().split("-")
+                    p_start = int(parts[0])
+                    p_end   = int(parts[1]) if len(parts) > 1 else p_start
+                    p_start = max(1, p_start)
+                    p_end   = min(info["pages"], p_end)
+                else:
+                    p_start, p_end = 1, info["pages"]
+            except Exception:
+                st.error("Invalid page range. Use format like 1-5.")
+                p_start, p_end = 1, 1
 
-                    st.success(f"✅ {len(imgs)} pages converted!")
-                    st.download_button("⬇ Download ZIP", zb.getvalue(),
-                                        os.path.splitext(f.name)[0]+"_images.zip",
-                                        "application/zip", key="pdf2img_dl")
+            total_pages = p_end - p_start + 1
+            bar = st.progress(0)
+            status = st.empty()
+            zb = io.BytesIO()
+            previews = []
 
-                    # Show thumbnails
+            try:
+                with zipfile.ZipFile(zb, "w", zipfile.ZIP_DEFLATED) as zf:
+                    # Render one page at a time to avoid RAM spike
+                    for page_num in range(p_start, p_end + 1):
+                        status.text(f"Rendering page {page_num} of {p_end}…")
+                        imgs = convert_from_bytes(
+                            pdf_bytes, dpi=dpi,
+                            first_page=page_num, last_page=page_num
+                        )
+                        img = imgs[0]
+                        ib = io.BytesIO()
+                        save_fmt = "JPEG" if fmt == "JPEG" else fmt
+                        img.save(ib, save_fmt, quality=85 if fmt=="JPEG" else None)
+                        zf.writestr(f"page_{page_num:03d}.{fmt.lower()}", ib.getvalue())
+                        if len(previews) < 4:
+                            previews.append((page_num, img.copy()))
+                        del img, imgs  # free memory immediately
+                        bar.progress((page_num - p_start + 1) / total_pages)
+
+                bar.empty()
+                status.empty()
+                st.success(f"✅ {total_pages} page(s) converted!")
+                st.download_button(
+                    "⬇ Download ZIP", zb.getvalue(),
+                    os.path.splitext(f.name)[0] + "_images.zip",
+                    "application/zip", key="pdf2img_dl"
+                )
+                if previews:
                     st.markdown("**Preview:**")
-                    thumb_cols = st.columns(min(4, len(imgs)))
-                    for i, img in enumerate(imgs[:4]):
-                        with thumb_cols[i]:
-                            st.image(img, caption=f"Page {i+1}", use_column_width=True)
-                except Exception as e:
-                    st.error(f"❌ {e}")
+                    thumb_cols = st.columns(len(previews))
+                    for col, (pnum, img) in zip(thumb_cols, previews):
+                        with col:
+                            st.image(img, caption=f"Page {pnum}", use_column_width=True)
+
+            except Exception as e:
+                bar.empty()
+                status.empty()
+                st.error(f"❌ Conversion failed: {e}")
 
 # ── PDF → Text ────────────────────────────────────────────────────
 elif selected_tool == "PDF → Text":
