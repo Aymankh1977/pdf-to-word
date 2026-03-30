@@ -1,4 +1,3 @@
-
 import io
 import re
 import os
@@ -266,7 +265,8 @@ def convert_pdf_to_docx(pdf_bytes, font_size=11, include_images=True, ocr_fallba
                     level=looks_like_heading(text,item.get("font_size"),item.get("bold",False))
                     if level in (1,2,3):
                         h=doc.add_heading(text,level=level)
-                        h.runs[0].font.size=Pt(font_size+(6-level*2))
+                        if h.runs:
+                            h.runs[0].font.size=Pt(font_size+(6-level*2))
                     else:
                         p=doc.add_paragraph(text)
                         for run in p.runs:
@@ -285,7 +285,8 @@ def convert_pdf_to_docx(pdf_bytes, font_size=11, include_images=True, ocr_fallba
                     if not cropped: continue
                     ib=io.BytesIO(); cropped.save(ib,format='PNG'); ib.seek(0)
                     iw2,ih2=cropped.size; mw=Inches(5)
-                    asp=ih2/iw2 if iw2>0 else 1; dw=min(mw,Inches(iw2/dpi))
+                    if iw2 == 0 or ih2 == 0: continue
+                    dw=min(mw,Inches(max(iw2/dpi, 0.5)))
                     p=doc.add_paragraph(); p.alignment=WD_ALIGN_PARAGRAPH.CENTER
                     p.add_run().add_picture(ib,width=dw); doc.add_paragraph()
             if pi<total-1: doc.add_page_break()
@@ -1054,16 +1055,20 @@ elif selected_tool == "Word → PDF":
                             r = subprocess.run(
                                 ["libreoffice","--headless","--convert-to","pdf",
                                  "--outdir", tmp, in_path],
-                                capture_output=True, text=True, timeout=60
+                                capture_output=True, text=True, timeout=120
                             )
-                            pdf_path = in_path.replace(".docx",".pdf")
+                            base = os.path.splitext(os.path.basename(in_path))[0]
+                            pdf_path = os.path.join(tmp, base + ".pdf")
                             if os.path.exists(pdf_path):
                                 with open(pdf_path,"rb") as pf:
                                     pdf_data = pf.read()
                                 out_n = os.path.splitext(f.name)[0]+".pdf"
                                 results.append({"name":f.name,"out":out_n,"bytes":pdf_data,"ok":True})
                             else:
-                                results.append({"name":f.name,"error":r.stderr[:200],"ok":False})
+                                err = (r.stderr or r.stdout or "LibreOffice produced no output")[:300]
+                                results.append({"name":f.name,"error":err,"ok":False})
+                    except FileNotFoundError:
+                        results.append({"name":f.name,"error":"LibreOffice is not installed on this server","ok":False})
                     except Exception as e:
                         results.append({"name":f.name,"error":str(e),"ok":False})
                 bar.progress((idx+1)/len(files))
@@ -1108,17 +1113,20 @@ elif selected_tool == "Excel → PDF":
                             r = subprocess.run(
                                 ["libreoffice","--headless","--convert-to","pdf",
                                  "--outdir", tmp, in_path],
-                                capture_output=True, text=True, timeout=60
+                                capture_output=True, text=True, timeout=120
                             )
-                            ext = os.path.splitext(f.name)[1]
-                            pdf_path = in_path.replace(ext, ".pdf")
+                            base = os.path.splitext(os.path.basename(in_path))[0]
+                            pdf_path = os.path.join(tmp, base + ".pdf")
                             if os.path.exists(pdf_path):
                                 with open(pdf_path,"rb") as pf:
                                     pdf_data = pf.read()
                                 out_n = os.path.splitext(f.name)[0]+".pdf"
                                 results.append({"name":f.name,"out":out_n,"bytes":pdf_data,"ok":True})
                             else:
-                                results.append({"name":f.name,"error":r.stderr[:200],"ok":False})
+                                err = (r.stderr or r.stdout or "LibreOffice produced no output")[:300]
+                                results.append({"name":f.name,"error":err,"ok":False})
+                    except FileNotFoundError:
+                        results.append({"name":f.name,"error":"LibreOffice is not installed on this server","ok":False})
                     except Exception as e:
                         results.append({"name":f.name,"error":str(e),"ok":False})
                 bar2.progress((idx+1)/len(files))
