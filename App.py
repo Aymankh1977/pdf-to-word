@@ -265,8 +265,7 @@ def convert_pdf_to_docx(pdf_bytes, font_size=11, include_images=True, ocr_fallba
                     level=looks_like_heading(text,item.get("font_size"),item.get("bold",False))
                     if level in (1,2,3):
                         h=doc.add_heading(text,level=level)
-                        if h.runs:
-                            h.runs[0].font.size=Pt(font_size+(6-level*2))
+                        h.runs[0].font.size=Pt(font_size+(6-level*2))
                     else:
                         p=doc.add_paragraph(text)
                         for run in p.runs:
@@ -285,8 +284,7 @@ def convert_pdf_to_docx(pdf_bytes, font_size=11, include_images=True, ocr_fallba
                     if not cropped: continue
                     ib=io.BytesIO(); cropped.save(ib,format='PNG'); ib.seek(0)
                     iw2,ih2=cropped.size; mw=Inches(5)
-                    if iw2 == 0 or ih2 == 0: continue
-                    dw=min(mw,Inches(max(iw2/dpi, 0.5)))
+                    asp=ih2/iw2 if iw2>0 else 1; dw=min(mw,Inches(iw2/dpi))
                     p=doc.add_paragraph(); p.alignment=WD_ALIGN_PARAGRAPH.CENTER
                     p.add_run().add_picture(ib,width=dw); doc.add_paragraph()
             if pi<total-1: doc.add_page_break()
@@ -456,6 +454,9 @@ TOOLS = [
     ("📋", "PDF → CSV",        "PDF to CSV data file"),
     ("🖼️", "PDF → Images",     "PDF pages to PNG/JPG"),
     ("📄", "PDF → Text",       "PDF to plain text"),
+    ("📝", "PDF → Markdown",   "PDF to Markdown"),
+    ("📝", "Word → Markdown",  "DOCX to Markdown"),
+    ("📝", "Excel → Markdown", "Excel to Markdown tables"),
     ("🔗", "Merge PDFs",       "Combine multiple PDFs"),
     ("✂️",  "Split PDF",        "Extract page ranges"),
     ("🔄", "Rotate Pages",     "Rotate any page"),
@@ -481,7 +482,8 @@ st.markdown("""
 # ── Tool navigation ──────────────────────────────────────────────
 TOOL_GROUPS = {
     "📤  PDF to...":  ["PDF → Word", "PDF → Excel", "PDF → CSV",
-                       "PDF → Images", "PDF → Text"],
+                       "PDF → Images", "PDF → Text",
+                       "PDF → Markdown", "Word → Markdown", "Excel → Markdown"],
     "📥  ...to PDF":  ["Images → PDF", "Word → PDF", "Excel → PDF"],
     "✏️  Edit PDF":   ["Add Text", "Redact", "Watermark", "Rotate Pages"],
     "📂  Manage PDF": ["Merge PDFs", "Split PDF", "Reorder Pages",
@@ -1055,20 +1057,16 @@ elif selected_tool == "Word → PDF":
                             r = subprocess.run(
                                 ["libreoffice","--headless","--convert-to","pdf",
                                  "--outdir", tmp, in_path],
-                                capture_output=True, text=True, timeout=120
+                                capture_output=True, text=True, timeout=60
                             )
-                            base = os.path.splitext(os.path.basename(in_path))[0]
-                            pdf_path = os.path.join(tmp, base + ".pdf")
+                            pdf_path = in_path.replace(".docx",".pdf")
                             if os.path.exists(pdf_path):
                                 with open(pdf_path,"rb") as pf:
                                     pdf_data = pf.read()
                                 out_n = os.path.splitext(f.name)[0]+".pdf"
                                 results.append({"name":f.name,"out":out_n,"bytes":pdf_data,"ok":True})
                             else:
-                                err = (r.stderr or r.stdout or "LibreOffice produced no output")[:300]
-                                results.append({"name":f.name,"error":err,"ok":False})
-                    except FileNotFoundError:
-                        results.append({"name":f.name,"error":"LibreOffice is not installed on this server","ok":False})
+                                results.append({"name":f.name,"error":r.stderr[:200],"ok":False})
                     except Exception as e:
                         results.append({"name":f.name,"error":str(e),"ok":False})
                 bar.progress((idx+1)/len(files))
@@ -1113,20 +1111,17 @@ elif selected_tool == "Excel → PDF":
                             r = subprocess.run(
                                 ["libreoffice","--headless","--convert-to","pdf",
                                  "--outdir", tmp, in_path],
-                                capture_output=True, text=True, timeout=120
+                                capture_output=True, text=True, timeout=60
                             )
-                            base = os.path.splitext(os.path.basename(in_path))[0]
-                            pdf_path = os.path.join(tmp, base + ".pdf")
+                            ext = os.path.splitext(f.name)[1]
+                            pdf_path = in_path.replace(ext, ".pdf")
                             if os.path.exists(pdf_path):
                                 with open(pdf_path,"rb") as pf:
                                     pdf_data = pf.read()
                                 out_n = os.path.splitext(f.name)[0]+".pdf"
                                 results.append({"name":f.name,"out":out_n,"bytes":pdf_data,"ok":True})
                             else:
-                                err = (r.stderr or r.stdout or "LibreOffice produced no output")[:300]
-                                results.append({"name":f.name,"error":err,"ok":False})
-                    except FileNotFoundError:
-                        results.append({"name":f.name,"error":"LibreOffice is not installed on this server","ok":False})
+                                results.append({"name":f.name,"error":r.stderr[:200],"ok":False})
                     except Exception as e:
                         results.append({"name":f.name,"error":str(e),"ok":False})
                 bar2.progress((idx+1)/len(files))
@@ -1368,5 +1363,217 @@ elif selected_tool == "PDF → Text":
                     out_name = os.path.splitext(f.name)[0]+".txt"
                     st.download_button("⬇ Download .txt", full_text.encode("utf-8"),
                                         out_name, "text/plain", key="pdf2txt_dl")
+                except Exception as e:
+                    st.error(f"❌ {e}")
+
+# ── PDF → Markdown ────────────────────────────────────────────────
+elif selected_tool == "PDF → Markdown":
+    f = st.file_uploader("Upload PDF", type=["pdf"], key="pdf2md")
+    if f:
+        pdf_bytes = f.read()
+        info = get_pdf_info(pdf_bytes)
+        include_tables = st.checkbox("Convert tables to Markdown format", True, key="pdf2md_tables")
+
+        if st.button("Convert to Markdown", use_container_width=True, key="pdf2md_btn"):
+            with st.spinner("Converting…"):
+                try:
+                    md_lines = []
+                    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                        for p_num, page in enumerate(pdf.pages, 1):
+                            if p_num > 1:
+                                md_lines.append(f"\n---\n")
+
+                            # Tables first
+                            if include_tables:
+                                tables = page.extract_tables()
+                                table_bboxes = []
+                                try:
+                                    table_bboxes = [t.bbox for t in page.find_tables()]
+                                except Exception:
+                                    pass
+                                for table in tables:
+                                    if not table: continue
+                                    rows = [[str(c or "").strip() for c in row] for row in table]
+                                    if not rows: continue
+                                    ncols = max(len(r) for r in rows)
+                                    # Pad rows
+                                    rows = [r + [""]*(ncols-len(r)) for r in rows]
+                                    md_lines.append("| " + " | ".join(rows[0]) + " |")
+                                    md_lines.append("| " + " | ".join(["---"]*ncols) + " |")
+                                    for row in rows[1:]:
+                                        md_lines.append("| " + " | ".join(row) + " |")
+                                    md_lines.append("")
+
+                            # Text with heading detection
+                            words = page.extract_words(extra_attrs=["size", "fontname"])
+                            if not words:
+                                raw = page.extract_text() or ""
+                                for line in raw.splitlines():
+                                    if line.strip():
+                                        md_lines.append(line.strip())
+                                continue
+
+                            lines = {}
+                            for w in words:
+                                lines.setdefault(round(w["top"], 1), []).append(w)
+
+                            def in_table_bbox(y):
+                                for bbox in table_bboxes:
+                                    if bbox[1] <= y <= bbox[3]:
+                                        return True
+                                return False
+
+                            prev_bottom = None
+                            for top, lw in sorted(lines.items()):
+                                if in_table_bbox(top):
+                                    continue
+                                lw.sort(key=lambda w: w["x0"])
+                                text = " ".join(w["text"] for w in lw).strip()
+                                if not text:
+                                    continue
+                                sizes = [w.get("size", 0) for w in lw if w.get("size")]
+                                fs = max(sizes) if sizes else 12
+                                bold = any("Bold" in w.get("fontname", "") for w in lw)
+                                # Blank line for paragraph gap
+                                if prev_bottom and (top - prev_bottom) > 14:
+                                    md_lines.append("")
+                                if fs >= 18:
+                                    md_lines.append(f"# {text}")
+                                elif fs >= 14:
+                                    md_lines.append(f"## {text}")
+                                elif fs >= 12 and bold:
+                                    md_lines.append(f"### {text}")
+                                elif bold:
+                                    md_lines.append(f"**{text}**")
+                                else:
+                                    md_lines.append(text)
+                                prev_bottom = top + lw[0].get("height", 10)
+
+                    md_out = "\n".join(md_lines)
+                    out_name = os.path.splitext(f.name)[0] + ".md"
+                    st.success(f"✅ Converted — {len(md_out):,} characters")
+                    st.text_area("Preview", md_out[:2000] + ("…" if len(md_out) > 2000 else ""), height=300)
+                    st.download_button("⬇ Download .md", md_out.encode("utf-8"),
+                                        out_name, "text/markdown", key="pdf2md_dl")
+                except Exception as e:
+                    st.error(f"❌ {e}")
+
+# ── Word → Markdown ───────────────────────────────────────────────
+elif selected_tool == "Word → Markdown":
+    f = st.file_uploader("Upload Word document (.docx)", type=["docx"], key="docx2md")
+    if f:
+        if st.button("Convert to Markdown", use_container_width=True, key="docx2md_btn"):
+            with st.spinner("Converting…"):
+                try:
+                    from docx import Document as DocxDoc
+                    from docx.oxml.ns import qn
+
+                    doc = DocxDoc(io.BytesIO(f.read()))
+                    md_lines = []
+
+                    for para in doc.paragraphs:
+                        style = para.style.name
+                        # Build text preserving inline bold/italic
+                        inline = ""
+                        for run in para.runs:
+                            txt = run.text
+                            if not txt:
+                                continue
+                            if run.bold and run.italic:
+                                txt = f"***{txt}***"
+                            elif run.bold:
+                                txt = f"**{txt}**"
+                            elif run.italic:
+                                txt = f"*{txt}*"
+                            inline += txt
+
+                        inline = inline.strip()
+                        if not inline:
+                            md_lines.append("")
+                            continue
+
+                        if "Title" in style:
+                            md_lines.append(f"# {inline}\n")
+                        elif "Heading 1" in style:
+                            md_lines.append(f"# {inline}\n")
+                        elif "Heading 2" in style:
+                            md_lines.append(f"## {inline}\n")
+                        elif "Heading 3" in style:
+                            md_lines.append(f"### {inline}\n")
+                        elif "Heading 4" in style:
+                            md_lines.append(f"#### {inline}\n")
+                        elif "List" in style or para.style.name.startswith("List"):
+                            md_lines.append(f"- {inline}")
+                        else:
+                            md_lines.append(f"{inline}\n")
+
+                    # Tables
+                    for table in doc.tables:
+                        rows = [[cell.text.strip() for cell in row.cells] for row in table.rows]
+                        if not rows: continue
+                        ncols = max(len(r) for r in rows)
+                        rows = [r + [""]*(ncols-len(r)) for r in rows]
+                        md_lines.append("")
+                        md_lines.append("| " + " | ".join(rows[0]) + " |")
+                        md_lines.append("| " + " | ".join(["---"]*ncols) + " |")
+                        for row in rows[1:]:
+                            md_lines.append("| " + " | ".join(row) + " |")
+                        md_lines.append("")
+
+                    md_out = "\n".join(md_lines)
+                    out_name = os.path.splitext(f.name)[0] + ".md"
+                    st.success(f"✅ Converted — {len(md_out):,} characters")
+                    st.text_area("Preview", md_out[:2000] + ("…" if len(md_out) > 2000 else ""), height=300)
+                    st.download_button("⬇ Download .md", md_out.encode("utf-8"),
+                                        out_name, "text/markdown", key="docx2md_dl")
+                except Exception as e:
+                    st.error(f"❌ {e}")
+
+# ── Excel → Markdown ──────────────────────────────────────────────
+elif selected_tool == "Excel → Markdown":
+    f = st.file_uploader("Upload Excel file (.xlsx)", type=["xlsx", "xls"], key="xl2md")
+    if f:
+        import openpyxl
+        wb = openpyxl.load_workbook(io.BytesIO(f.read()), data_only=True)
+        sheet_names = wb.sheetnames
+        sheet = st.selectbox("Sheet", sheet_names, key="xl2md_sheet")
+        include_header = st.checkbox("First row is header", True, key="xl2md_header")
+
+        if st.button("Convert to Markdown", use_container_width=True, key="xl2md_btn"):
+            with st.spinner("Converting…"):
+                try:
+                    ws = wb[sheet]
+                    rows = []
+                    for row in ws.iter_rows(values_only=True):
+                        if any(v is not None for v in row):
+                            rows.append([str(v) if v is not None else "" for v in row])
+
+                    if not rows:
+                        st.warning("No data found in this sheet.")
+                    else:
+                        md_lines = []
+                        ncols = max(len(r) for r in rows)
+                        rows = [r + [""]*(ncols-len(r)) for r in rows]
+
+                        if include_header:
+                            md_lines.append("| " + " | ".join(rows[0]) + " |")
+                            md_lines.append("| " + " | ".join(["---"]*ncols) + " |")
+                            data_rows = rows[1:]
+                        else:
+                            # Auto-generate column headers
+                            cols = [f"Col {i+1}" for i in range(ncols)]
+                            md_lines.append("| " + " | ".join(cols) + " |")
+                            md_lines.append("| " + " | ".join(["---"]*ncols) + " |")
+                            data_rows = rows
+
+                        for row in data_rows:
+                            md_lines.append("| " + " | ".join(row) + " |")
+
+                        md_out = "\n".join(md_lines)
+                        out_name = os.path.splitext(f.name)[0] + f"_{sheet}.md"
+                        st.success(f"✅ {len(data_rows)} rows converted from sheet '{sheet}'")
+                        st.text_area("Preview", md_out[:2000] + ("…" if len(md_out) > 2000 else ""), height=300)
+                        st.download_button("⬇ Download .md", md_out.encode("utf-8"),
+                                            out_name, "text/markdown", key="xl2md_dl")
                 except Exception as e:
                     st.error(f"❌ {e}")
