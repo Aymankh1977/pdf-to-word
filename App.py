@@ -127,6 +127,31 @@ hr { border-color:#e2d9ce !important; }
 #  UTILITY FUNCTIONS
 # ═══════════════════════════════════════════════════════════════════
 
+import glob as _glob
+
+def resolve_font(preferred_path):
+    """Return a working font path. Falls back through known locations
+    so the app never crashes with 'cannot open resource'."""
+    if preferred_path and os.path.exists(preferred_path):
+        return preferred_path
+    # Fallback search order
+    candidates = [
+        preferred_path,
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+    ]
+    for c in candidates:
+        if c and os.path.exists(c):
+            return c
+    # Last resort: any ttf on the system
+    for base in ["/usr/share/fonts", "/usr/local/share/fonts"]:
+        found = _glob.glob(os.path.join(base, "**", "*.ttf"), recursive=True)
+        if found:
+            return found[0]
+    raise RuntimeError("No TrueType fonts available on this system")
+
+
 def get_pdf_info(pdf_bytes):
     r = PdfReader(io.BytesIO(pdf_bytes))
     encrypted = r.is_encrypted
@@ -884,16 +909,19 @@ elif selected_tool == "Extract Images":
 # ── Add Text Annotation ───────────────────────────────────────────
 elif selected_tool == "Add Text":
 
+    import streamlit.components.v1 as components
+    import base64, json
+
     FONTS = {
-        "Serif (Arabic \u2713)":      "/usr/share/fonts/truetype/freefont/FreeSerif.ttf",
-        "Serif Bold (Arabic \u2713)": "/usr/share/fonts/truetype/freefont/FreeSerifBold.ttf",
-        "Serif Italic":              "/usr/share/fonts/truetype/freefont/FreeSerifItalic.ttf",
-        "Sans (Arabic \u2713)":       "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-        "Sans Bold (Arabic \u2713)":  "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
-        "Sans Italic":               "/usr/share/fonts/truetype/freefont/FreeSansOblique.ttf",
-        "Mono":                      "/usr/share/fonts/truetype/freefont/FreeMono.ttf",
-        "DejaVu Sans":               "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "DejaVu Sans Bold":          "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "Serif (Arabic)":      "/usr/share/fonts/truetype/freefont/FreeSerif.ttf",
+        "Serif Bold (Arabic)": "/usr/share/fonts/truetype/freefont/FreeSerifBold.ttf",
+        "Sans (Arabic)":       "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+        "Sans Bold (Arabic)":  "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+        "Mono":                "/usr/share/fonts/truetype/freefont/FreeMono.ttf",
+        "DejaVu Sans":         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "DejaVu Sans Bold":    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "Liberation Serif":    "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
+        "Liberation Sans":     "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
     }
 
     if "at_pdf"   not in st.session_state: st.session_state.at_pdf   = None
@@ -920,60 +948,125 @@ elif selected_tool == "Add Text":
         with s3: color = st.color_picker("Colour", "#1c1917", key="at_color")
         with s4: page  = st.number_input("Page", 1, info["pages"], 1, key="at_page")
 
-        # ── 2 · Position with sliders + live preview ────────────
-        st.markdown("#### 2 \u00b7 Position your text")
-        pcol1, pcol2 = st.columns(2)
-        with pcol1:
-            x_pct = st.slider("Horizontal position", 0, 100, 15, key="at_x",
-                              help="0 = left edge, 100 = right edge")
-        with pcol2:
-            y_pct = st.slider("Vertical position", 0, 100, 10, key="at_y",
-                              help="0 = top, 100 = bottom")
+        font_path = resolve_font(FONTS[font_name])
 
-        # Live preview with the text rendered in place
+        # ── 2 · Drag the text box on the page ───────────────────
+        st.markdown("#### 2 \u00b7 Drag the text box where you want it")
+        st.caption("Click and drag the box on the page. Its position is captured automatically.")
+
+        # Render page as background image (base64)
         try:
-            from PIL import ImageFont, ImageDraw
             import subprocess, tempfile, glob
+            from PIL import ImageFont, ImageDraw
             with tempfile.TemporaryDirectory() as tmp:
                 pp = os.path.join(tmp, "p.pdf")
                 with open(pp, "wb") as fo: fo.write(pdf_bytes)
                 pref = os.path.join(tmp, "pg")
-                subprocess.run(["pdftoppm", "-r", "100", "-png",
+                subprocess.run(["pdftoppm", "-r", "110", "-png",
                                 "-f", str(int(page)), "-l", str(int(page)),
                                 pp, pref], capture_output=True, timeout=40)
-                matches = glob.glob(pref + "*")
-                if matches:
-                    prev = Image.open(matches[0]).convert("RGBA")
-                    pw, ph = prev.size
-                    draw = ImageDraw.Draw(prev)
-                    fp = ImageFont.truetype(FONTS[font_name], max(8, int(size) * 100 // 72))
-                    ch = color.lstrip("#")
-                    cr, cg, cb = int(ch[0:2],16), int(ch[2:4],16), int(ch[4:6],16)
-                    tx = int(x_pct/100 * pw)
-                    ty = int(y_pct/100 * ph)
-                    draw.text((tx, ty), text, font=fp, fill=(cr, cg, cb, 255))
-                    # subtle guide lines
-                    draw.line([(tx, 0), (tx, ph)], fill=(139,94,82,60), width=1)
-                    draw.line([(0, ty), (pw, ty)], fill=(139,94,82,60), width=1)
-                    st.image(prev, caption=f"Live preview \u2014 Page {int(page)}",
-                             use_column_width=True)
+                m = glob.glob(pref + "*")
+                bg = Image.open(m[0]).convert("RGB") if m else None
+
+            if bg:
+                orig_w, orig_h = bg.size
+                disp_w = min(680, orig_w)
+                disp_h = int(disp_w * orig_h / orig_w)
+                bg_resized = bg.resize((disp_w, disp_h))
+                bgb = io.BytesIO(); bg_resized.save(bgb, "PNG")
+                bg_b64 = base64.b64encode(bgb.getvalue()).decode()
+
+                # Render the text as a transparent PNG to show inside the draggable box
+                fp = ImageFont.truetype(font_path, max(10, int(size) * disp_w // 612))
+                dummy = Image.new("RGBA", (1,1))
+                bb = ImageDraw.Draw(dummy).textbbox((0,0), text or " ", font=fp)
+                tw = max(10, bb[2]-bb[0]+8)
+                th = max(10, bb[3]-bb[1]+8)
+                ti = Image.new("RGBA", (tw, th), (255,255,255,0))
+                ch = color.lstrip("#")
+                cr,cg,cb = int(ch[0:2],16),int(ch[2:4],16),int(ch[4:6],16)
+                ImageDraw.Draw(ti).text((4,2), text or " ", font=fp, fill=(cr,cg,cb,255))
+                tib = io.BytesIO(); ti.save(tib, "PNG")
+                txt_b64 = base64.b64encode(tib.getvalue()).decode()
+
+                # Draggable component; returns {xpct,ypct} via setComponentValue
+                comp_html = f"""
+<div id="stage" style="position:relative;width:{disp_w}px;height:{disp_h}px;
+     border:1px solid #d5ccc4;box-shadow:0 2px 12px rgba(0,0,0,.08);
+     background:url('data:image/png;base64,{bg_b64}');background-size:{disp_w}px {disp_h}px;
+     user-select:none;margin-bottom:6px;">
+  <div id="box" style="position:absolute;left:60px;top:60px;cursor:move;
+       border:1.5px dashed #8b5e52;background:rgba(139,94,82,.06);padding:0;">
+    <img src="data:image/png;base64,{txt_b64}" draggable="false" style="display:block;pointer-events:none;"/>
+  </div>
+</div>
+<div style="font:12px sans-serif;color:#6b5f55;">Position:
+  <span id="pos" style="color:#8b5e52;font-weight:600;">drag the box</span></div>
+<script>
+  const stage=document.getElementById('stage');
+  const box=document.getElementById('box');
+  const pos=document.getElementById('pos');
+  const W={disp_w}, H={disp_h};
+  let drag=false, offx=0, offy=0;
+
+  function send(){{
+    const xpct=Math.round(box.offsetLeft/W*1000)/10;
+    const ypct=Math.round(box.offsetTop/H*1000)/10;
+    pos.textContent=xpct+'% , '+ypct+'%';
+    if(window.Streamlit){{Streamlit.setComponentValue({{xpct:xpct,ypct:ypct}});}}
+  }}
+  box.addEventListener('mousedown',e=>{{drag=true;offx=e.offsetX;offy=e.offsetY;e.preventDefault();}});
+  document.addEventListener('mousemove',e=>{{
+    if(!drag)return;
+    const r=stage.getBoundingClientRect();
+    let nx=e.clientX-r.left-offx, ny=e.clientY-r.top-offy;
+    nx=Math.max(0,Math.min(nx,W-box.offsetWidth));
+    ny=Math.max(0,Math.min(ny,H-box.offsetHeight));
+    box.style.left=nx+'px'; box.style.top=ny+'px';
+    send();
+  }});
+  document.addEventListener('mouseup',()=>{{if(drag){{drag=false;send();}}}});
+  // Initial send
+  if(window.Streamlit){{
+    Streamlit.setFrameHeight({disp_h}+50);
+    setTimeout(send,200);
+  }}
+</script>
+"""
+                drag_val = components.html(comp_html, height=disp_h + 60)
+
+                # Parse returned position (fallback to last known or default)
+                if "at_pos" not in st.session_state:
+                    st.session_state.at_pos = {"xpct": 10.0, "ypct": 10.0}
+                if isinstance(drag_val, dict) and "xpct" in drag_val:
+                    st.session_state.at_pos = drag_val
+
+                cur = st.session_state.at_pos
+
+                # Manual fine-tune (also lets user set position if JS bridge is blocked)
+                mc1, mc2 = st.columns(2)
+                with mc1:
+                    x_pct = st.number_input("Horizontal %", 0.0, 100.0,
+                                             float(cur.get("xpct", 10)), key="at_xman")
+                with mc2:
+                    y_pct = st.number_input("Vertical %", 0.0, 100.0,
+                                             float(cur.get("ypct", 10)), key="at_yman")
+
+                if st.button("\uff0b Add Text", use_container_width=True, key="at_add"):
+                    st.session_state.at_queue.append({
+                        "text": text, "font": font_path, "fname": font_name,
+                        "size": int(size), "color": color, "page": int(page),
+                        "x_pct": x_pct, "y_pct": y_pct,
+                    })
+                    st.success("Added to document")
+            else:
+                st.error("Could not render the page preview.")
         except Exception as e:
-            st.caption(f"Preview unavailable: {e}")
+            st.error(f"Preview error: {e}")
 
-        # ── 3 · Add to queue ────────────────────────────────────
-        ca, _ = st.columns([1, 2])
-        with ca:
-            if st.button("\uff0b Add Text", use_container_width=True, key="at_add"):
-                st.session_state.at_queue.append({
-                    "text": text, "font": FONTS[font_name], "fname": font_name,
-                    "size": int(size), "color": color, "page": int(page),
-                    "x_pct": x_pct, "y_pct": y_pct,
-                })
-                st.success("Added to document")
-
-        # ── Queue & apply ───────────────────────────────────────
+        # ── 3 · Review & apply ──────────────────────────────────
         if st.session_state.at_queue:
-            st.markdown("#### Review & apply")
+            st.markdown("#### 3 \u00b7 Review & apply")
             for i, ann in enumerate(st.session_state.at_queue):
                 cA, cB = st.columns([6, 1])
                 with cA:
@@ -1001,7 +1094,8 @@ elif selected_tool == "Add Text":
                             from reportlab.lib.utils import ImageReader
                             result = pdf_bytes
                             for ann in st.session_state.at_queue:
-                                fp = ImageFont.truetype(ann["font"], ann["size"] * 3)
+                                fpp = resolve_font(ann["font"])
+                                fp = ImageFont.truetype(fpp, ann["size"] * 3)
                                 dummy = Image.new("RGBA", (1, 1))
                                 bb = ImageDraw.Draw(dummy).textbbox((0, 0), ann["text"], font=fp)
                                 tw = max(1, bb[2]-bb[0]+20)
