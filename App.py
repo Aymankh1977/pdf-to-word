@@ -885,18 +885,17 @@ elif selected_tool == "Extract Images":
 elif selected_tool == "Add Text":
 
     FONTS = {
-        "Serif (Arabic ✓)":      "/usr/share/fonts/truetype/freefont/FreeSerif.ttf",
-        "Serif Bold (Arabic ✓)": "/usr/share/fonts/truetype/freefont/FreeSerifBold.ttf",
-        "Serif Italic":          "/usr/share/fonts/truetype/freefont/FreeSerifItalic.ttf",
-        "Sans (Arabic ✓)":       "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-        "Sans Bold (Arabic ✓)":  "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
-        "Sans Italic":           "/usr/share/fonts/truetype/freefont/FreeSansOblique.ttf",
-        "Mono":                  "/usr/share/fonts/truetype/freefont/FreeMono.ttf",
-        "DejaVu Sans":           "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "DejaVu Sans Bold":      "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "Serif (Arabic \u2713)":      "/usr/share/fonts/truetype/freefont/FreeSerif.ttf",
+        "Serif Bold (Arabic \u2713)": "/usr/share/fonts/truetype/freefont/FreeSerifBold.ttf",
+        "Serif Italic":              "/usr/share/fonts/truetype/freefont/FreeSerifItalic.ttf",
+        "Sans (Arabic \u2713)":       "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+        "Sans Bold (Arabic \u2713)":  "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+        "Sans Italic":               "/usr/share/fonts/truetype/freefont/FreeSansOblique.ttf",
+        "Mono":                      "/usr/share/fonts/truetype/freefont/FreeMono.ttf",
+        "DejaVu Sans":               "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "DejaVu Sans Bold":          "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     }
 
-    # Session state
     if "at_pdf"   not in st.session_state: st.session_state.at_pdf   = None
     if "at_queue" not in st.session_state: st.session_state.at_queue = []
 
@@ -911,25 +910,29 @@ elif selected_tool == "Add Text":
         pdf_bytes = st.session_state.at_pdf
         info = get_pdf_info(pdf_bytes)
 
-        # ── Text styling panel ──────────────────────────────────
-        st.markdown("#### 1 · Compose your text")
+        # ── 1 · Compose ─────────────────────────────────────────
+        st.markdown("#### 1 \u00b7 Compose your text")
         text = st.text_input("Text content", "Type your text here",
                               key="at_text", label_visibility="collapsed")
-
-        s1, s2, s3, s4, s5 = st.columns([2, 1, 1, 1, 1])
+        s1, s2, s3, s4 = st.columns([2, 1, 1, 1])
         with s1: font_name = st.selectbox("Font", list(FONTS.keys()), key="at_font")
         with s2: size  = st.number_input("Size", 6, 120, 24, key="at_size")
         with s3: color = st.color_picker("Colour", "#1c1917", key="at_color")
         with s4: page  = st.number_input("Page", 1, info["pages"], 1, key="at_page")
-        with s5: align = st.selectbox("Align", ["Left", "Center", "Right"], key="at_align")
 
-        st.markdown("#### 2 · Click on the page to place your text")
+        # ── 2 · Position with sliders + live preview ────────────
+        st.markdown("#### 2 \u00b7 Position your text")
+        pcol1, pcol2 = st.columns(2)
+        with pcol1:
+            x_pct = st.slider("Horizontal position", 0, 100, 15, key="at_x",
+                              help="0 = left edge, 100 = right edge")
+        with pcol2:
+            y_pct = st.slider("Vertical position", 0, 100, 10, key="at_y",
+                              help="0 = top, 100 = bottom")
 
-        # Render the selected page as background for the canvas
+        # Live preview with the text rendered in place
         try:
-            from streamlit_drawable_canvas import st_canvas
             from PIL import ImageFont, ImageDraw
-
             import subprocess, tempfile, glob
             with tempfile.TemporaryDirectory() as tmp:
                 pp = os.path.join(tmp, "p.pdf")
@@ -939,90 +942,65 @@ elif selected_tool == "Add Text":
                                 "-f", str(int(page)), "-l", str(int(page)),
                                 pp, pref], capture_output=True, timeout=40)
                 matches = glob.glob(pref + "*")
-                bg_img = Image.open(matches[0]).convert("RGB") if matches else None
+                if matches:
+                    prev = Image.open(matches[0]).convert("RGBA")
+                    pw, ph = prev.size
+                    draw = ImageDraw.Draw(prev)
+                    fp = ImageFont.truetype(FONTS[font_name], max(8, int(size) * 100 // 72))
+                    ch = color.lstrip("#")
+                    cr, cg, cb = int(ch[0:2],16), int(ch[2:4],16), int(ch[4:6],16)
+                    tx = int(x_pct/100 * pw)
+                    ty = int(y_pct/100 * ph)
+                    draw.text((tx, ty), text, font=fp, fill=(cr, cg, cb, 255))
+                    # subtle guide lines
+                    draw.line([(tx, 0), (tx, ph)], fill=(139,94,82,60), width=1)
+                    draw.line([(0, ty), (pw, ty)], fill=(139,94,82,60), width=1)
+                    st.image(prev, caption=f"Live preview \u2014 Page {int(page)}",
+                             use_column_width=True)
+        except Exception as e:
+            st.caption(f"Preview unavailable: {e}")
 
-            if bg_img:
-                # Scale canvas to fit nicely (max 700px wide)
-                orig_w, orig_h = bg_img.size
-                disp_w = min(700, orig_w)
-                disp_h = int(disp_w * orig_h / orig_w)
-                bg_resized = bg_img.resize((disp_w, disp_h))
-
-                # Text preview image to stamp on canvas
-                canvas_result = st_canvas(
-                    fill_color="rgba(139, 94, 82, 0.15)",
-                    stroke_width=2,
-                    stroke_color="#8b5e52",
-                    background_image=bg_resized,
-                    update_streamlit=True,
-                    height=disp_h,
-                    width=disp_w,
-                    drawing_mode="point",
-                    point_display_radius=6,
-                    key="at_canvas",
-                )
-
-                # Capture click position
-                clicked_x, clicked_y = None, None
-                if canvas_result.json_data and canvas_result.json_data.get("objects"):
-                    last = canvas_result.json_data["objects"][-1]
-                    clicked_x = last.get("left", 0)
-                    clicked_y = last.get("top", 0)
-                    st.caption(f"📍 Position set at ({int(clicked_x)}, {int(clicked_y)}) — click **Add** below.")
-
-                # Store the mapping info for apply step
-                st.session_state.at_disp_w = disp_w
-                st.session_state.at_disp_h = disp_h
-
-                col_add, _ = st.columns([1, 2])
-                with col_add:
-                    if st.button("＋ Add Text", use_container_width=True, key="at_add",
-                                 disabled=(clicked_x is None)):
-                        st.session_state.at_queue.append({
-                            "text": text, "font": FONTS[font_name], "fname": font_name,
-                            "size": int(size), "color": color, "page": int(page),
-                            "align": align,
-                            "cx": clicked_x, "cy": clicked_y,
-                            "disp_w": disp_w, "disp_h": disp_h,
-                        })
-                        st.success("Added to document")
-            else:
-                st.error("Could not render page preview.")
-        except ImportError:
-            st.error("The drawable canvas component is not installed. "
-                     "Add `streamlit-drawable-canvas` to requirements.txt and reboot.")
+        # ── 3 · Add to queue ────────────────────────────────────
+        ca, _ = st.columns([1, 2])
+        with ca:
+            if st.button("\uff0b Add Text", use_container_width=True, key="at_add"):
+                st.session_state.at_queue.append({
+                    "text": text, "font": FONTS[font_name], "fname": font_name,
+                    "size": int(size), "color": color, "page": int(page),
+                    "x_pct": x_pct, "y_pct": y_pct,
+                })
+                st.success("Added to document")
 
         # ── Queue & apply ───────────────────────────────────────
         if st.session_state.at_queue:
-            st.markdown("#### 3 · Review & apply")
+            st.markdown("#### Review & apply")
             for i, ann in enumerate(st.session_state.at_queue):
-                ca, cb = st.columns([6, 1])
-                with ca:
+                cA, cB = st.columns([6, 1])
+                with cA:
                     st.markdown(
                         f'<div class="result-card">'
                         f'<div class="fname">"{ann["text"][:55]}"</div>'
-                        f'<div class="fmeta">Page {ann["page"]} · {ann["fname"]} · '
-                        f'{ann["size"]}pt · {ann["align"]}</div></div>',
-                        unsafe_allow_html=True)
-                with cb:
-                    if st.button("✕", key=f"at_del_{i}"):
+                        f'<div class="fmeta">Page {ann["page"]} \u00b7 {ann["fname"]} \u00b7 '
+                        f'{ann["size"]}pt \u00b7 ({ann["x_pct"]}%, {ann["y_pct"]}%)</div>'
+                        f'</div>', unsafe_allow_html=True)
+                with cB:
+                    if st.button("\u2715", key=f"at_del_{i}"):
                         st.session_state.at_queue.pop(i)
                         st.rerun()
 
             b1, b2 = st.columns(2)
             with b1:
-                if st.button("🗑 Clear all", use_container_width=True, key="at_clear"):
+                if st.button("\U0001f5d1 Clear all", use_container_width=True, key="at_clear"):
                     st.session_state.at_queue = []
                     st.rerun()
             with b2:
-                if st.button("✓ Apply & Download", use_container_width=True, key="at_apply"):
-                    with st.spinner("Embedding text…"):
+                if st.button("\u2713 Apply & Download", use_container_width=True, key="at_apply"):
+                    with st.spinner("Embedding text\u2026"):
                         try:
                             from PIL import ImageFont, ImageDraw
                             from reportlab.lib.utils import ImageReader
                             result = pdf_bytes
                             for ann in st.session_state.at_queue:
-                                # Render text → transparent PNG (Arabic-safe)
                                 fp = ImageFont.truetype(ann["font"], ann["size"] * 3)
                                 dummy = Image.new("RGBA", (1, 1))
                                 bb = ImageDraw.Draw(dummy).textbbox((0, 0), ann["text"], font=fp)
@@ -1033,24 +1011,12 @@ elif selected_tool == "Add Text":
                                 cr, cg, cb2 = int(ch[0:2],16), int(ch[2:4],16), int(ch[4:6],16)
                                 ImageDraw.Draw(ti).text((10, 10), ann["text"], font=fp,
                                                          fill=(cr, cg, cb2, 255))
-
-                                # Map canvas click → PDF coords
                                 r_t = PdfReader(io.BytesIO(result))
                                 pg_t = r_t.pages[ann["page"]-1]
                                 pdf_w = float(pg_t.mediabox.width)
                                 pdf_h = float(pg_t.mediabox.height)
-                                scale = pdf_w / ann["disp_w"]
-                                disp_text_w = (tw/3)  # points
-                                # Alignment offset
-                                if ann["align"] == "Center":
-                                    x_off = -disp_text_w/2
-                                elif ann["align"] == "Right":
-                                    x_off = -disp_text_w
-                                else:
-                                    x_off = 0
-                                pdf_x = ann["cx"] * scale + x_off
-                                pdf_y = pdf_h - (ann["cy"] * scale) - (th/6)
-
+                                pdf_x = (ann["x_pct"]/100) * pdf_w
+                                pdf_y = pdf_h - (ann["y_pct"]/100) * pdf_h - (th/3)
                                 ib = io.BytesIO(); ti.save(ib, "PNG"); ib.seek(0)
                                 ob = io.BytesIO()
                                 oc = rl_canvas.Canvas(ob, pagesize=(pdf_w, pdf_h))
@@ -1069,12 +1035,12 @@ elif selected_tool == "Add Text":
 
                             name = f.name if f else "annotated.pdf"
                             out_name = os.path.splitext(name)[0] + "_annotated.pdf"
-                            st.success(f"✅ {len(st.session_state.at_queue)} text element(s) added!")
-                            st.download_button("⬇ Download PDF", result,
+                            st.success(f"\u2705 {len(st.session_state.at_queue)} text element(s) added!")
+                            st.download_button("\u2b07 Download PDF", result,
                                                 out_name, "application/pdf", key="at_dl")
                             st.session_state.at_queue = []
                         except Exception as e:
-                            st.error(f"❌ {e}")
+                            st.error(f"\u274c {e}")
 
 # ── Redact ────────────────────────────────────────────────────────
 elif selected_tool == "Redact":
