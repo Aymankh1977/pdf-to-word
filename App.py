@@ -129,7 +129,11 @@ hr { border-color:#e2d9ce !important; }
 
 def get_pdf_info(pdf_bytes):
     r = PdfReader(io.BytesIO(pdf_bytes))
-    return {"pages": len(r.pages), "encrypted": r.is_encrypted}
+    encrypted = r.is_encrypted
+    if encrypted:
+        # Can't count pages without the password — return safely
+        return {"pages": 0, "encrypted": True}
+    return {"pages": len(r.pages), "encrypted": False}
 
 def pdf_page_previews(pdf_bytes, dpi=80, max_pages=20):
     """Return list of PIL images for preview."""
@@ -367,10 +371,16 @@ def protect_pdf(pdf_bytes, user_password, owner_password=None):
 def unlock_pdf(pdf_bytes, password):
     reader = PdfReader(io.BytesIO(pdf_bytes))
     if reader.is_encrypted:
-        reader.decrypt(password)
+        result = reader.decrypt(password)
+        # decrypt returns 0 if password is wrong
+        if result == 0:
+            raise ValueError("Incorrect password")
     writer = PdfWriter()
-    for page in reader.pages: writer.add_page(page)
-    out = io.BytesIO(); writer.write(out); return out.getvalue()
+    for page in reader.pages:
+        writer.add_page(page)
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
 
 # ── 7. Compress ───────────────────────────────────────────────────
 
@@ -691,32 +701,50 @@ elif selected_tool == "Protect / Unlock":
     if f:
         pdf_bytes = f.read()
         info = get_pdf_info(pdf_bytes)
-        action = st.radio("Action", ["🔒 Add Password", "🔓 Remove Password"] if info["encrypted"] else ["🔒 Add Password"])
+
+        if info["encrypted"]:
+            st.info("🔒 This PDF is password-protected. Enter the password to unlock it, or add a new password.")
+        else:
+            st.info("🔓 This PDF is not protected. You can add a password to secure it.")
+
+        # Offer both actions regardless, but default based on state
+        default_idx = 1 if info["encrypted"] else 0
+        action = st.radio("Action", ["🔒 Add Password", "🔓 Remove Password"],
+                          index=default_idx, horizontal=True)
 
         if "Add Password" in action:
+            if info["encrypted"]:
+                st.warning("This PDF is already encrypted. Remove the existing password first before adding a new one.")
             col1, col2 = st.columns(2)
-            with col1: user_pw = st.text_input("User password (to open)", type="password")
-            with col2: owner_pw = st.text_input("Owner password (optional)", type="password")
-            if st.button("Protect PDF") and user_pw:
+            with col1:
+                user_pw = st.text_input("Password (required to open)", type="password", key="prot_user")
+            with col2:
+                owner_pw = st.text_input("Owner password (optional)", type="password", key="prot_owner")
+            if st.button("Protect PDF", use_container_width=True) and user_pw:
                 with st.spinner("Protecting…"):
                     try:
                         result = protect_pdf(pdf_bytes, user_pw, owner_pw or None)
                         st.success("✅ PDF is now password protected!")
                         out_name = os.path.splitext(f.name)[0] + "_protected.pdf"
-                        st.download_button("⬇ Download", result, out_name, "application/pdf")
+                        st.download_button("⬇ Download Protected PDF", result,
+                                            out_name, "application/pdf", key="prot_dl")
                     except Exception as e:
                         st.error(f"❌ {e}")
         else:
-            pw = st.text_input("Enter current password", type="password")
-            if st.button("Remove Password") and pw:
-                with st.spinner("Unlocking…"):
-                    try:
-                        result = unlock_pdf(pdf_bytes, pw)
-                        st.success("✅ Password removed!")
-                        out_name = os.path.splitext(f.name)[0] + "_unlocked.pdf"
-                        st.download_button("⬇ Download", result, out_name, "application/pdf")
-                    except Exception as e:
-                        st.error(f"❌ Wrong password or error: {e}")
+            if not info["encrypted"]:
+                st.warning("This PDF is not password-protected — there's nothing to unlock.")
+            else:
+                pw = st.text_input("Enter the current password", type="password", key="unlock_pw")
+                if st.button("Remove Password", use_container_width=True) and pw:
+                    with st.spinner("Unlocking…"):
+                        try:
+                            result = unlock_pdf(pdf_bytes, pw)
+                            st.success("✅ Password removed! The PDF is now unlocked.")
+                            out_name = os.path.splitext(f.name)[0] + "_unlocked.pdf"
+                            st.download_button("⬇ Download Unlocked PDF", result,
+                                                out_name, "application/pdf", key="unlock_dl")
+                        except Exception as e:
+                            st.error(f"❌ Incorrect password. Please check and try again.")
 
 # ── Extract Images ────────────────────────────────────────────────
 elif selected_tool == "Extract Images":
