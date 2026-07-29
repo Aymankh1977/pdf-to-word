@@ -336,25 +336,27 @@ def rotate_pdf(pdf_bytes, angle, page_nums=None):
 # ── 5. Watermark ──────────────────────────────────────────────────
 
 def add_watermark(pdf_bytes, text, opacity=0.25, font_size=60, color_hex="#cc3333", angle=45):
-    # Build watermark page
-    wm_buf = io.BytesIO()
-    c = rl_canvas.Canvas(wm_buf, pagesize=letter)
     r = int(color_hex[1:3],16)/255
     g = int(color_hex[3:5],16)/255
     b = int(color_hex[5:7],16)/255
-    c.setFillColor(Color(r, g, b, alpha=opacity))
-    c.setFont("Helvetica-Bold", font_size)
-    c.saveState()
-    c.translate(letter[0]/2, letter[1]/2)
-    c.rotate(angle)
-    c.drawCentredString(0, 0, text)
-    c.restoreState()
-    c.save()
-    wm_page = PdfReader(io.BytesIO(wm_buf.getvalue())).pages[0]
 
     reader = PdfReader(io.BytesIO(pdf_bytes))
     writer = PdfWriter()
     for page in reader.pages:
+        # Build a watermark sized to THIS page
+        pw = float(page.mediabox.width)
+        ph = float(page.mediabox.height)
+        wm_buf = io.BytesIO()
+        c = rl_canvas.Canvas(wm_buf, pagesize=(pw, ph))
+        c.setFillColor(Color(r, g, b, alpha=opacity))
+        c.setFont("Helvetica-Bold", font_size)
+        c.saveState()
+        c.translate(pw/2, ph/2)
+        c.rotate(angle)
+        c.drawCentredString(0, 0, text)
+        c.restoreState()
+        c.save()
+        wm_page = PdfReader(io.BytesIO(wm_buf.getvalue())).pages[0]
         page.merge_page(wm_page)
         writer.add_page(page)
     out = io.BytesIO(); writer.write(out); return out.getvalue()
@@ -384,11 +386,51 @@ def unlock_pdf(pdf_bytes, password):
 
 # ── 7. Compress ───────────────────────────────────────────────────
 
-def compress_pdf(pdf_bytes):
+def compress_pdf(pdf_bytes, quality="medium"):
+    """Compress PDF. quality: 'high' (light), 'medium', 'low' (aggressive)."""
+    # Try Ghostscript-style compression via pikepdf image recompression
     out = io.BytesIO()
-    with pikepdf.open(io.BytesIO(pdf_bytes)) as pk:
-        pk.save(out, compress_streams=True, recompress_flate=True)
-    return out.getvalue()
+    settings = {
+        "high":   {"recompress": True},
+        "medium": {"recompress": True},
+        "low":    {"recompress": True},
+    }
+    try:
+        with pikepdf.open(io.BytesIO(pdf_bytes)) as pk:
+            # Recompress images inside the PDF
+            for page in pk.pages:
+                for name, raw in list(page.images.items()):
+                    try:
+                        pdfimg = pikepdf.PdfImage(raw)
+                        pil = pdfimg.as_pil_image()
+                        # Downsample based on quality
+                        if quality == "low":
+                            max_dim = 800
+                            jpg_q = 40
+                        elif quality == "medium":
+                            max_dim = 1200
+                            jpg_q = 60
+                        else:
+                            max_dim = 2000
+                            jpg_q = 80
+                        w, h = pil.size
+                        if max(w, h) > max_dim:
+                            ratio = max_dim / max(w, h)
+                            pil = pil.resize((int(w*ratio), int(h*ratio)))
+                        # Re-encode as JPEG
+                        img_buf = io.BytesIO()
+                        pil.convert("RGB").save(img_buf, "JPEG", quality=jpg_q)
+                        raw.write(img_buf.getvalue(), filter=pikepdf.Name("/DCTDecode"))
+                    except Exception:
+                        continue
+            pk.save(out, compress_streams=True, recompress_flate=True)
+        return out.getvalue()
+    except Exception:
+        # Fallback to basic compression
+        out2 = io.BytesIO()
+        with pikepdf.open(io.BytesIO(pdf_bytes)) as pk:
+            pk.save(out2, compress_streams=True, recompress_flate=True)
+        return out2.getvalue()
 
 # ── 8. Extract pages as images ────────────────────────────────────
 
@@ -427,20 +469,58 @@ def add_text_annotation(pdf_bytes, text, page_num=1, x=100, y=100,
 # ── 10. Redact ────────────────────────────────────────────────────
 
 def redact_pdf(pdf_bytes, page_num=1, x=100, y=100, width=200, height=20):
-    """Cover region with black rectangle."""
-    redact_buf = io.BytesIO()
-    c = rl_canvas.Canvas(redact_buf, pagesize=letter)
-    c.setFillColorRGB(0, 0, 0)
-    c.rect(x, y, width, height, fill=1, stroke=0)
-    c.save()
-    redact_page = PdfReader(io.BytesIO(redact_buf.getvalue())).pages[0]
+    """TRUE redaction: rasterize the page so content underneath is destroyed,
+    then draw the black box. Text under the box cannot be extracted."""
+    import subprocess, tempfile, glob
+    from PIL import Image as PILImage, ImageDraw
+    from reportlab.lib.utils import ImageReader
 
     reader = PdfReader(io.BytesIO(pdf_bytes))
+    pw = float(reader.pages[page_num-1].mediabox.width)
+    ph = float(reader.pages[page_num-1].mediabox.height)
+
+    # Render the target page to an image at 150 DPI
+    with tempfile.TemporaryDirectory() as tmp:
+        pdf_path = os.path.join(tmp, "in.pdf")
+        with open(pdf_path, "wb") as fo:
+            fo.write(pdf_bytes)
+        prefix = os.path.join(tmp, "pg")
+        subprocess.run(["pdftoppm", "-r", "150", "-png",
+                        "-f", str(page_num), "-l", str(page_num), pdf_path, prefix],
+                       capture_output=True, timeout=60)
+        matches = glob.glob(prefix + "*")
+        if not matches:
+            raise RuntimeError("Could not render page for redaction")
+        page_img = PILImage.open(matches[0]).convert("RGB")
+
+    # Draw black box on the rasterized image (destroys content underneath)
+    img_w, img_h = page_img.size
+    scale_x = img_w / pw
+    scale_y = img_h / ph
+    # PDF y is from bottom; image y is from top
+    box_left   = x * scale_x
+    box_top    = (ph - y - height) * scale_y
+    box_right  = (x + width) * scale_x
+    box_bottom = (ph - y) * scale_y
+    draw = ImageDraw.Draw(page_img)
+    draw.rectangle([box_left, box_top, box_right, box_bottom], fill=(0, 0, 0))
+
+    # Rebuild that page from the redacted image
+    img_buf = io.BytesIO()
+    page_img.save(img_buf, "PNG")
+    img_buf.seek(0)
+    new_page_buf = io.BytesIO()
+    c = rl_canvas.Canvas(new_page_buf, pagesize=(pw, ph))
+    c.drawImage(ImageReader(img_buf), 0, 0, width=pw, height=ph)
+    c.save()
+    redacted_page = PdfReader(io.BytesIO(new_page_buf.getvalue())).pages[0]
+
     writer = PdfWriter()
     for i, page in enumerate(reader.pages):
         if i+1 == page_num:
-            page.merge_page(redact_page)
-        writer.add_page(page)
+            writer.add_page(redacted_page)
+        else:
+            writer.add_page(page)
     out = io.BytesIO(); writer.write(out); return out.getvalue()
 
 # ── 11. Reorder pages ─────────────────────────────────────────────
@@ -648,6 +728,22 @@ elif selected_tool == "Rotate Pages":
                 try:
                     result = rotate_pdf(pdf_bytes, angle, page_nums)
                     st.success("✅ Done!")
+                    # Preview first rotated page
+                    try:
+                        import subprocess, tempfile, glob
+                        from PIL import Image as PILImg
+                        with tempfile.TemporaryDirectory() as tmp:
+                            pp = os.path.join(tmp, "r.pdf")
+                            with open(pp,"wb") as fo: fo.write(result)
+                            pref = os.path.join(tmp, "pg")
+                            first_pg = page_nums[0] if page_nums else 1
+                            subprocess.run(["pdftoppm","-r","80","-png","-f",str(first_pg),
+                                            "-l",str(first_pg),pp,pref], capture_output=True, timeout=30)
+                            m = glob.glob(pref+"*")
+                            if m:
+                                st.image(PILImg.open(m[0]), caption=f"Rotated page {first_pg}", width=300)
+                    except Exception:
+                        pass
                     out_name = os.path.splitext(f.name)[0] + f"_rotated.pdf"
                     st.download_button("⬇ Download", result, out_name, "application/pdf")
                 except Exception as e:
@@ -679,15 +775,24 @@ elif selected_tool == "Watermark":
 # ── Compress ──────────────────────────────────────────────────────
 elif selected_tool == "Compress":
     files = st.file_uploader("Upload PDF(s)", type=["pdf"], accept_multiple_files=True)
+    quality = st.select_slider(
+        "Compression level",
+        options=["high", "medium", "low"],
+        value="medium",
+        format_func=lambda x: {"high":"High quality (light compression)",
+                                "medium":"Balanced",
+                                "low":"Smallest size (aggressive)"}[x]
+    )
     if files and st.button("Compress"):
         bar = st.progress(0)
         for idx, f in enumerate(files):
             with st.spinner(f"Compressing {f.name}…"):
                 try:
                     original = f.read()
-                    compressed = compress_pdf(original)
+                    compressed = compress_pdf(original, quality)
                     saving = (1 - len(compressed)/len(original)) * 100
-                    st.markdown(f'<div class="result-card"><div class="fname">🗜️ {f.name}</div><div class="fmeta">{len(original):,} bytes → {len(compressed):,} bytes ({saving:.1f}% smaller)</div></div>', unsafe_allow_html=True)
+                    saving_txt = f"{saving:.1f}% smaller" if saving > 0 else "already optimised"
+                    st.markdown(f'<div class="result-card"><div class="fname">🗜️ {f.name}</div><div class="fmeta">{len(original):,} bytes → {len(compressed):,} bytes ({saving_txt})</div></div>', unsafe_allow_html=True)
                     out_name = os.path.splitext(f.name)[0] + "_compressed.pdf"
                     st.download_button(f"⬇ Download {out_name}", compressed, out_name, "application/pdf", key=out_name)
                 except Exception as e:
@@ -941,21 +1046,56 @@ elif selected_tool == "Redact":
     if f:
         pdf_bytes = f.read()
         info = get_pdf_info(pdf_bytes)
-        st.info("Position a black redaction box over sensitive content.")
+        st.info("🔒 True redaction — content under the box is permanently destroyed, not just hidden. Text cannot be recovered.")
+
+        page_num_r = st.number_input("Page number", 1, info["pages"], 1)
+
         col1, col2 = st.columns(2)
         with col1:
-            page_num_r = st.number_input("Page number", 1, info["pages"], 1)
-            x_r = st.slider("X position", 0, 600, 100)
-            y_r = st.slider("Y position (from bottom)", 0, 800, 700)
+            x_pct = st.slider("← Box left edge (%)", 0, 95, 10, key="rdx")
+            w_pct = st.slider("Box width (%)", 5, 100, 40, key="rdw")
         with col2:
-            w_r = st.slider("Width", 10, 500, 200)
-            h_r = st.slider("Height", 5, 100, 20)
+            y_pct = st.slider("↑ Box top edge (%)", 0, 95, 10, key="rdy")
+            h_pct = st.slider("Box height (%)", 2, 50, 5, key="rdh")
 
-        if st.button("Apply Redaction"):
-            with st.spinner("Redacting…"):
+        # Live preview
+        try:
+            import subprocess, tempfile, glob
+            from PIL import Image as PILImg, ImageDraw
+            with tempfile.TemporaryDirectory() as tmp:
+                pp = os.path.join(tmp, "p.pdf")
+                with open(pp, "wb") as fo: fo.write(pdf_bytes)
+                pref = os.path.join(tmp, "pg")
+                subprocess.run(["pdftoppm","-r","90","-png","-f",str(page_num_r),
+                                "-l",str(page_num_r),pp,pref], capture_output=True, timeout=30)
+                m = glob.glob(pref+"*")
+                if m:
+                    prev = PILImg.open(m[0]).convert("RGB")
+                    pw2, ph2 = prev.size
+                    draw = ImageDraw.Draw(prev)
+                    bl = x_pct/100*pw2
+                    bt = y_pct/100*ph2
+                    br = min(pw2, bl + w_pct/100*pw2)
+                    bb = min(ph2, bt + h_pct/100*ph2)
+                    draw.rectangle([bl,bt,br,bb], fill=(0,0,0))
+                    st.image(prev, caption=f"Preview — Page {page_num_r} (black = redacted)", use_column_width=True)
+        except Exception:
+            pass
+
+        if st.button("Apply Redaction", use_container_width=True):
+            with st.spinner("Applying permanent redaction…"):
                 try:
-                    result = redact_pdf(pdf_bytes, page_num_r, x_r, y_r, w_r, h_r)
-                    st.success(f"✅ Redacted page {page_num_r}")
+                    # Convert % to PDF points
+                    reader = PdfReader(io.BytesIO(pdf_bytes))
+                    pw = float(reader.pages[page_num_r-1].mediabox.width)
+                    ph = float(reader.pages[page_num_r-1].mediabox.height)
+                    x_pt = x_pct/100 * pw
+                    w_pt = w_pct/100 * pw
+                    h_pt = h_pct/100 * ph
+                    # y from bottom = ph - top - height
+                    y_pt = ph - (y_pct/100 * ph) - h_pt
+                    result = redact_pdf(pdf_bytes, page_num_r, x_pt, y_pt, w_pt, h_pt)
+                    st.success(f"✅ Page {page_num_r} redacted — content permanently removed")
                     out_name = os.path.splitext(f.name)[0] + "_redacted.pdf"
                     st.download_button("⬇ Download", result, out_name, "application/pdf")
                 except Exception as e:
