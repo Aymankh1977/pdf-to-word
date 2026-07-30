@@ -910,18 +910,30 @@ elif selected_tool == "Extract Images":
 elif selected_tool == "Add Text":
 
     import streamlit.components.v1 as components
-    import base64, json
+    import base64
 
+    # Fonts guaranteed by packages.txt (freefont, dejavu, liberation)
     FONTS = {
-        "Serif (Arabic)":      "/usr/share/fonts/truetype/freefont/FreeSerif.ttf",
-        "Serif Bold (Arabic)": "/usr/share/fonts/truetype/freefont/FreeSerifBold.ttf",
-        "Sans (Arabic)":       "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-        "Sans Bold (Arabic)":  "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
-        "Mono":                "/usr/share/fonts/truetype/freefont/FreeMono.ttf",
-        "DejaVu Sans":         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "DejaVu Sans Bold":    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "Liberation Serif":    "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
-        "Liberation Sans":     "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "Serif — FreeSerif (Arabic)":        "/usr/share/fonts/truetype/freefont/FreeSerif.ttf",
+        "Serif Bold — FreeSerif (Arabic)":   "/usr/share/fonts/truetype/freefont/FreeSerifBold.ttf",
+        "Serif Italic — FreeSerif":          "/usr/share/fonts/truetype/freefont/FreeSerifItalic.ttf",
+        "Serif Bold Italic — FreeSerif":     "/usr/share/fonts/truetype/freefont/FreeSerifBoldItalic.ttf",
+        "Sans — FreeSans (Arabic)":          "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+        "Sans Bold — FreeSans (Arabic)":     "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+        "Sans Oblique — FreeSans":           "/usr/share/fonts/truetype/freefont/FreeSansOblique.ttf",
+        "Sans Bold Oblique — FreeSans":      "/usr/share/fonts/truetype/freefont/FreeSansBoldOblique.ttf",
+        "Mono — FreeMono":                   "/usr/share/fonts/truetype/freefont/FreeMono.ttf",
+        "Mono Bold — FreeMono":              "/usr/share/fonts/truetype/freefont/FreeMonoBold.ttf",
+        "DejaVu Sans":                       "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "DejaVu Sans Bold":                  "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "DejaVu Serif":                      "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+        "DejaVu Serif Bold":                 "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
+        "DejaVu Sans Mono":                  "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        "Liberation Serif":                  "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
+        "Liberation Serif Bold":             "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf",
+        "Liberation Sans":                   "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "Liberation Sans Bold":              "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "Liberation Mono":                   "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
     }
 
     if "at_pdf"   not in st.session_state: st.session_state.at_pdf   = None
@@ -944,17 +956,16 @@ elif selected_tool == "Add Text":
                               key="at_text", label_visibility="collapsed")
         s1, s2, s3, s4 = st.columns([2, 1, 1, 1])
         with s1: font_name = st.selectbox("Font", list(FONTS.keys()), key="at_font")
-        with s2: size  = st.number_input("Size", 6, 120, 24, key="at_size")
+        with s2: size  = st.number_input("Size", 6, 200, 24, key="at_size")
         with s3: color = st.color_picker("Colour", "#1c1917", key="at_color")
         with s4: page  = st.number_input("Page", 1, info["pages"], 1, key="at_page")
 
         font_path = resolve_font(FONTS[font_name])
 
-        # ── 2 · Drag the text box on the page ───────────────────
-        st.markdown("#### 2 \u00b7 Drag the text box where you want it")
-        st.caption("Click and drag the box on the page. Its position is captured automatically.")
+        # ── 2 · Drag box on page (shows already-placed texts too) ─
+        st.markdown("#### 2 \u00b7 Drag the new text box, then click Add")
+        st.caption("Boxes already added on this page are shown in place. Drag the dashed box to position the new one.")
 
-        # Render page as background image (base64)
         try:
             import subprocess, tempfile, glob
             from PIL import ImageFont, ImageDraw
@@ -972,11 +983,27 @@ elif selected_tool == "Add Text":
                 orig_w, orig_h = bg.size
                 disp_w = min(680, orig_w)
                 disp_h = int(disp_w * orig_h / orig_w)
-                bg_resized = bg.resize((disp_w, disp_h))
-                bgb = io.BytesIO(); bg_resized.save(bgb, "PNG")
+
+                # Burn already-queued texts for THIS page into the preview bg
+                bg_draw = bg.resize((disp_w, disp_h)).convert("RGBA")
+                draw_bg = ImageDraw.Draw(bg_draw)
+                for ann in st.session_state.at_queue:
+                    if ann["page"] != int(page):
+                        continue
+                    try:
+                        afp = resolve_font(ann["font"])
+                        afont = ImageFont.truetype(afp, max(8, int(ann["size"]) * disp_w // 612))
+                        ach = ann["color"].lstrip("#")
+                        acr,acg,acb = int(ach[0:2],16),int(ach[2:4],16),int(ach[4:6],16)
+                        ax = int(ann["x_pct"]/100 * disp_w)
+                        ay = int(ann["y_pct"]/100 * disp_h)
+                        draw_bg.text((ax, ay), ann["text"], font=afont, fill=(acr,acg,acb,255))
+                    except Exception:
+                        pass
+                bgb = io.BytesIO(); bg_draw.convert("RGB").save(bgb, "PNG")
                 bg_b64 = base64.b64encode(bgb.getvalue()).decode()
 
-                # Render the text as a transparent PNG to show inside the draggable box
+                # New text preview PNG for the draggable box
                 fp = ImageFont.truetype(font_path, max(10, int(size) * disp_w // 612))
                 dummy = Image.new("RGBA", (1,1))
                 bb = ImageDraw.Draw(dummy).textbbox((0,0), text or " ", font=fp)
@@ -989,26 +1016,24 @@ elif selected_tool == "Add Text":
                 tib = io.BytesIO(); ti.save(tib, "PNG")
                 txt_b64 = base64.b64encode(tib.getvalue()).decode()
 
-                # Draggable component; returns {xpct,ypct} via setComponentValue
                 comp_html = f"""
 <div id="stage" style="position:relative;width:{disp_w}px;height:{disp_h}px;
      border:1px solid #d5ccc4;box-shadow:0 2px 12px rgba(0,0,0,.08);
      background:url('data:image/png;base64,{bg_b64}');background-size:{disp_w}px {disp_h}px;
      user-select:none;margin-bottom:6px;">
   <div id="box" style="position:absolute;left:60px;top:60px;cursor:move;
-       border:1.5px dashed #8b5e52;background:rgba(139,94,82,.06);padding:0;">
+       border:1.5px dashed #8b5e52;background:rgba(139,94,82,.06);">
     <img src="data:image/png;base64,{txt_b64}" draggable="false" style="display:block;pointer-events:none;"/>
   </div>
 </div>
-<div style="font:12px sans-serif;color:#6b5f55;">Position:
-  <span id="pos" style="color:#8b5e52;font-weight:600;">drag the box</span></div>
+<div style="font:12px sans-serif;color:#6b5f55;">New box position:
+  <span id="pos" style="color:#8b5e52;font-weight:600;">drag to move</span></div>
 <script>
   const stage=document.getElementById('stage');
   const box=document.getElementById('box');
   const pos=document.getElementById('pos');
   const W={disp_w}, H={disp_h};
   let drag=false, offx=0, offy=0;
-
   function send(){{
     const xpct=Math.round(box.offsetLeft/W*1000)/10;
     const ypct=Math.round(box.offsetTop/H*1000)/10;
@@ -1022,51 +1047,46 @@ elif selected_tool == "Add Text":
     let nx=e.clientX-r.left-offx, ny=e.clientY-r.top-offy;
     nx=Math.max(0,Math.min(nx,W-box.offsetWidth));
     ny=Math.max(0,Math.min(ny,H-box.offsetHeight));
-    box.style.left=nx+'px'; box.style.top=ny+'px';
-    send();
+    box.style.left=nx+'px'; box.style.top=ny+'px'; send();
   }});
   document.addEventListener('mouseup',()=>{{if(drag){{drag=false;send();}}}});
-  // Initial send
-  if(window.Streamlit){{
-    Streamlit.setFrameHeight({disp_h}+50);
-    setTimeout(send,200);
-  }}
+  if(window.Streamlit){{Streamlit.setFrameHeight({disp_h}+50);setTimeout(send,200);}}
 </script>
 """
                 drag_val = components.html(comp_html, height=disp_h + 60)
-
-                # Parse returned position (fallback to last known or default)
                 if "at_pos" not in st.session_state:
                     st.session_state.at_pos = {"xpct": 10.0, "ypct": 10.0}
                 if isinstance(drag_val, dict) and "xpct" in drag_val:
                     st.session_state.at_pos = drag_val
-
                 cur = st.session_state.at_pos
 
-                # Manual fine-tune (also lets user set position if JS bridge is blocked)
-                mc1, mc2 = st.columns(2)
+                mc1, mc2, mc3 = st.columns([1,1,1])
                 with mc1:
                     x_pct = st.number_input("Horizontal %", 0.0, 100.0,
                                              float(cur.get("xpct", 10)), key="at_xman")
                 with mc2:
                     y_pct = st.number_input("Vertical %", 0.0, 100.0,
                                              float(cur.get("ypct", 10)), key="at_yman")
+                with mc3:
+                    st.write("")
+                    st.write("")
+                    add_clicked = st.button("\uff0b Add this text", use_container_width=True, key="at_add")
 
-                if st.button("\uff0b Add Text", use_container_width=True, key="at_add"):
+                if add_clicked:
                     st.session_state.at_queue.append({
                         "text": text, "font": font_path, "fname": font_name,
                         "size": int(size), "color": color, "page": int(page),
                         "x_pct": x_pct, "y_pct": y_pct,
                     })
-                    st.success("Added to document")
+                    st.rerun()
             else:
                 st.error("Could not render the page preview.")
         except Exception as e:
             st.error(f"Preview error: {e}")
 
-        # ── 3 · Review & apply ──────────────────────────────────
+        # ── 3 · All placed texts ────────────────────────────────
         if st.session_state.at_queue:
-            st.markdown("#### 3 \u00b7 Review & apply")
+            st.markdown(f"#### 3 \u00b7 {len(st.session_state.at_queue)} text element(s) placed")
             for i, ann in enumerate(st.session_state.at_queue):
                 cA, cB = st.columns([6, 1])
                 with cA:
@@ -1132,7 +1152,6 @@ elif selected_tool == "Add Text":
                             st.success(f"\u2705 {len(st.session_state.at_queue)} text element(s) added!")
                             st.download_button("\u2b07 Download PDF", result,
                                                 out_name, "application/pdf", key="at_dl")
-                            st.session_state.at_queue = []
                         except Exception as e:
                             st.error(f"\u274c {e}")
 
